@@ -17,13 +17,29 @@
     "creator": {
       "type": "string"
     },
-    "price": {
-      "type": "number",
-      "default": 1e-06
+    "issuer": {
+      "type": "string"
+    },
+    "asset_code": {
+      "type": "string"
+    },
+    "home_domain": {
+      "type": "string"
     },
     "supply": {
       "type": "number",
       "default": 1000000000
+    },
+    "liquidity_percent": {
+      "type": "number",
+      "default": 100
+    },
+    "toml_content": {
+      "type": "string"
+    },
+    "price": {
+      "type": "number",
+      "default": 1e-06
     },
     "market_cap": {
       "type": "number"

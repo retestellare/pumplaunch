@@ -1,43 +1,43 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { StellarWalletsKit, ensureKitInit } from './walletKit';
 
 const WalletContext = createContext(null);
-const STORAGE_KEY = 'stellar_pump_wallet';
 
 export function WalletProvider({ children }) {
-  const [wallet, setWallet] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [wallet, setWallet] = useState(null);
+  const [connecting, setConnecting] = useState(false);
 
-  const persist = useCallback((data) => {
-    setWallet(data);
-    if (data) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    else localStorage.removeItem(STORAGE_KEY);
+  useEffect(() => {
+    ensureKitInit();
+    StellarWalletsKit.getAddress()
+      .then(({ address }) => {
+        if (address) setWallet({ address });
+      })
+      .catch(() => {});
   }, []);
 
-  const connect = useCallback(() => {
-    const r = () => Math.random().toString(36).substring(2, 15).toUpperCase();
-    const addr = 'G' + r() + r();
-    persist({ address: addr, balance: 10000 });
-  }, [persist]);
+  const connect = useCallback(async () => {
+    ensureKitInit();
+    setConnecting(true);
+    try {
+      const { address } = await StellarWalletsKit.authModal();
+      setWallet({ address });
+    } finally {
+      setConnecting(false);
+    }
+  }, []);
 
-  const disconnect = useCallback(() => persist(null), [persist]);
-
-  const updateBalance = useCallback((newBalance) => {
-    setWallet((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, balance: newBalance };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+  const disconnect = useCallback(async () => {
+    try {
+      await StellarWalletsKit.disconnect();
+    } catch {
+      /* ignore */
+    }
+    setWallet(null);
   }, []);
 
   return (
-    <WalletContext.Provider value={{ wallet, connect, disconnect, updateBalance }}>
+    <WalletContext.Provider value={{ wallet, connect, disconnect, connecting }}>
       {children}
     </WalletContext.Provider>
   );

@@ -65,6 +65,11 @@ export default function TokenDetail() {
             <div className="flex-1 min-w-0">
               <h2 className="text-2xl font-bold">{token.name}</h2>
               <p className="text-sm text-white/40 mt-1">{token.description || 'A new memecoin on Stellar'}</p>
+              {token.issuer && (
+                <p className="text-[10px] text-white/30 mt-1 font-mono">
+                  {token.asset_code || token.symbol} · {token.issuer.slice(0, 8)}…{token.issuer.slice(-4)}
+                </p>
+              )}
             </div>
             <TokenIcon token={token} size={56} />
           </div>
