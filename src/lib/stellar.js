@@ -73,7 +73,7 @@ export function hasTrustline(account, assetCode, issuer) {
   );
 }
 
-export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, liquidityPercent }) {
+export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, liquidityPercent, homeDomain }) {
   const issuer = sourceAccount.accountId();
   const asset = new StellarSdk.Asset(assetCode, issuer);
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
@@ -81,7 +81,7 @@ export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, 
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  tx.addOperation(StellarSdk.Operation.setOptions({ homeDomain: HOME_DOMAIN }));
+  tx.addOperation(StellarSdk.Operation.setOptions({ homeDomain: homeDomain || HOME_DOMAIN }));
 
   tx.addOperation(
     StellarSdk.Operation.payment({
@@ -173,14 +173,17 @@ export async function signAndSubmit(transaction) {
   }
 }
 
-export function generateStellarToml({ name, code, issuer, description }) {
-  const lines = ['# stellar.toml', '[DOCUMENTATION]', `ORG_NAME="${name}"`];
+export function generateStellarToml({ name, code, issuer, description, logoUrl, orgUrl }) {
+  const lines = ['# stellar.toml', '[DOCUMENTATION]'];
+  lines.push(`ORG_NAME="${name}"`);
+  if (orgUrl) lines.push(`ORG_URL="${orgUrl}"`);
   if (description) lines.push(`ORG_DESCRIPTION="${description}"`);
-  lines.push('', '[CURRENCIES]');
+  lines.push('', '[[CURRENCIES]]');
   lines.push(`CURRENCY_CODE="${code}"`);
   lines.push(`CURRENCY_ISSUER="${issuer}"`);
   lines.push(`CURRENCY_NAME="${name}"`);
   if (description) lines.push(`CURRENCY_DESC="${description}"`);
+  if (logoUrl) lines.push(`CURRENCY_LOGO="${logoUrl}"`);
   return lines.join('\n');
 }
 

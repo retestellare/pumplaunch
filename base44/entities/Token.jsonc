@@ -26,6 +26,9 @@
     "home_domain": {
       "type": "string"
     },
+    "custom_domain": {
+      "type": "string"
+    },
     "supply": {
       "type": "number",
       "default": 1000000000
