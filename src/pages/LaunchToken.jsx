@@ -135,7 +135,7 @@ export default function LaunchToken() {
         liquidityPercent: liquidity,
         homeDomain,
       });
-      await signAndSubmit(issueTx);
+      await signAndSubmit(issueTx, [issuerKeypair]);
 
       const toml = generateStellarToml({
         name: form.name,

@@ -142,8 +142,6 @@ export function buildLaunchIssueTransaction({ sourceAccount, issuerKeypair, asse
   }
 
   const built = tx.setTimeout(300).build();
-  built.sign(issuerKeypair);
-
   return built;
 }
 
@@ -193,7 +191,7 @@ export function buildSellTransaction({ sourceAccount, assetCode, issuer, tokenAm
   return tx.setTimeout(300).build();
 }
 
-export async function signAndSubmit(transaction) {
+export async function signAndSubmit(transaction, postSignKeypairs = []) {
   ensureKitInit();
   try {
     const { address } = await StellarWalletsKit.getAddress();
@@ -202,6 +200,9 @@ export async function signAndSubmit(transaction) {
       networkPassphrase: NETWORK_PASSPHRASE,
     });
     const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
+    for (const kp of postSignKeypairs) {
+      signedTx.sign(kp);
+    }
     const result = await server.submitTransaction(signedTx, { skipMemoRequiredCheck: true });
     return result;
   } catch (e) {
