@@ -1,0 +1,6 @@
+# stellar.toml
+[DOCUMENTATION]
+ORG_NAME="Stellar Pump"
+ORG_URL="https://stellarlaunch.base44.app"
+ORG_DESCRIPTION="Memecoin launchpad on the Stellar network. Launch, trade, and discover tokens on Stellar."
+ORG_KEYWORDS="stellar, memecoin, launchpad, crypto, xlm"
