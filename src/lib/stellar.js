@@ -74,8 +74,7 @@ export function hasTrustline(account, assetCode, issuer) {
   );
 }
 
-export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, liquidityPercent, homeDomain }) {
-  const user = sourceAccount.accountId();
+export function buildLaunchSetupTransaction({ sourceAccount, assetCode, homeDomain }) {
   const issuerKeypair = StellarSdk.Keypair.random();
   const issuerPublicKey = issuerKeypair.publicKey();
   const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
@@ -92,6 +91,22 @@ export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, 
     })
   );
 
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
+
+  const built = tx.setTimeout(300).build();
+  return { transaction: built, issuerKeypair, issuerPublicKey };
+}
+
+export function buildLaunchIssueTransaction({ sourceAccount, issuerKeypair, assetCode, totalSupply, liquidityPercent, homeDomain }) {
+  const user = sourceAccount.accountId();
+  const issuerPublicKey = issuerKeypair.publicKey();
+  const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
+
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
   tx.addOperation(
     StellarSdk.Operation.setOptions({
       sourceAccount: issuerPublicKey,
@@ -99,8 +114,6 @@ export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, 
       masterWeight: 0,
     })
   );
-
-  tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
 
   tx.addOperation(
     StellarSdk.Operation.payment({
@@ -131,7 +144,7 @@ export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, 
   const built = tx.setTimeout(300).build();
   built.sign(issuerKeypair);
 
-  return { transaction: built, issuerPublicKey };
+  return built;
 }
 
 export function buildBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, minTokensOut }) {

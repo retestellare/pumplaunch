@@ -7,7 +7,8 @@ import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import {
   loadAccount,
-  buildLaunchTransaction,
+  buildLaunchSetupTransaction,
+  buildLaunchIssueTransaction,
   signAndSubmit,
   generateStellarToml,
   estimateLaunchCost,
@@ -39,6 +40,7 @@ export default function LaunchToken() {
   const [imagePreview, setImagePreview] = useState(null);
   const [tomlText, setTomlText] = useState('');
   const [tokenId, setTokenId] = useState(null);
+  const [loadingStep, setLoadingStep] = useState('');
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -87,6 +89,7 @@ export default function LaunchToken() {
 
   const launch = async () => {
     setLoading(true);
+    setLoadingStep('Creating issuer account…');
     try {
       const supply = parseFloat(form.supply);
       const sym = form.symbol.toUpperCase();
@@ -110,14 +113,29 @@ export default function LaunchToken() {
         return;
       }
 
-      const { transaction, issuerPublicKey } = buildLaunchTransaction({
+      const { transaction: setupTx, issuerKeypair, issuerPublicKey } = buildLaunchSetupTransaction({
         sourceAccount: account,
+        assetCode: sym,
+        homeDomain,
+      });
+      await signAndSubmit(setupTx);
+
+      setLoadingStep('Issuing tokens…');
+      await new Promise((r) => setTimeout(r, 5000));
+
+      const issuerAccount = await loadAccount(issuerPublicKey);
+      if (!issuerAccount) throw new Error('Issuer account not found after creation');
+
+      const account2 = await loadAccount(wallet.address);
+      const issueTx = buildLaunchIssueTransaction({
+        sourceAccount: account2,
+        issuerKeypair,
         assetCode: sym,
         totalSupply: supply,
         liquidityPercent: liquidity,
         homeDomain,
       });
-      await signAndSubmit(transaction);
+      await signAndSubmit(issueTx);
 
       const toml = generateStellarToml({
         name: form.name,
@@ -163,6 +181,7 @@ export default function LaunchToken() {
       toast({ title: 'Launch failed', description: e.message || String(e), variant: 'destructive' });
     }
     setLoading(false);
+    setLoadingStep('');
   };
 
   const cost = estimateLaunchCost(liquidity);
@@ -337,7 +356,7 @@ export default function LaunchToken() {
               disabled={loading}
               className="flex-1 py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
             >
-              {loading ? 'Launching…' : 'Confirm & Launch'}
+              {loading ? (loadingStep || 'Launching…') : 'Confirm & Launch'}
             </button>
           </div>
         </div>
