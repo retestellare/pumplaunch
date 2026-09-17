@@ -1,0 +1,39 @@
+{
+  "name": "Trade",
+  "type": "object",
+  "properties": {
+    "token_id": {
+      "type": "string"
+    },
+    "token_symbol": {
+      "type": "string"
+    },
+    "token_name": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "buy",
+        "sell"
+      ]
+    },
+    "amount_xlm": {
+      "type": "number"
+    },
+    "tokens": {
+      "type": "number"
+    },
+    "price": {
+      "type": "number"
+    },
+    "user_address": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "token_id",
+    "type",
+    "amount_xlm"
+  ]
+}

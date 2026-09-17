@@ -1,0 +1,33 @@
+{
+  "name": "Post",
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "token_symbol": {
+      "type": "string"
+    },
+    "position_size": {
+      "type": "number"
+    },
+    "pnl": {
+      "type": "number"
+    },
+    "likes": {
+      "type": "number",
+      "default": 0
+    },
+    "comments_count": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "content",
+    "author"
+  ]
+}

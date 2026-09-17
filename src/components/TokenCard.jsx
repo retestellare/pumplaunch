@@ -1,0 +1,32 @@
+import { Link } from 'react-router-dom';
+import TokenIcon from './TokenIcon';
+
+export default function TokenCard({ token, rank }) {
+  const change = token.change_24h ?? 0;
+  const positive = change >= 0;
+  return (
+    <Link
+      to={`/token/${token.id}`}
+      className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition border-b border-white/5"
+    >
+      {rank != null && <span className="w-5 text-sm text-white/30 font-medium">{rank}</span>}
+      <TokenIcon token={token} size={40} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-sm truncate">${token.symbol}</span>
+          {token.is_graduated && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00ff88]/10 text-[#00ff88] font-bold">GRAD</span>
+          )}
+        </div>
+        <div className="text-xs text-white/40 truncate">{token.name}</div>
+      </div>
+      <div className="text-right">
+        <div className="text-sm font-medium">${(token.price ?? 0).toFixed(8)}</div>
+        <div className={`text-xs font-medium ${positive ? 'text-[#00ff88]' : 'text-[#ff3b5c]'}`}>
+          {positive ? '+' : ''}
+          {change.toFixed(2)}%
+        </div>
+      </div>
+    </Link>
+  );
+}

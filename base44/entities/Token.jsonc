@@ -1,0 +1,52 @@
+{
+  "name": "Token",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "creator": {
+      "type": "string"
+    },
+    "price": {
+      "type": "number",
+      "default": 1e-06
+    },
+    "supply": {
+      "type": "number",
+      "default": 1000000000
+    },
+    "market_cap": {
+      "type": "number"
+    },
+    "holders": {
+      "type": "number",
+      "default": 1
+    },
+    "volume_24h": {
+      "type": "number",
+      "default": 0
+    },
+    "change_24h": {
+      "type": "number",
+      "default": 0
+    },
+    "is_graduated": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name",
+    "symbol"
+  ]
+}
