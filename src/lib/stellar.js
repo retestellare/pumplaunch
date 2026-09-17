@@ -10,6 +10,7 @@ const RESERVE_PER_ENTRY = 0.5;
 const BONDING_RUNGS = 6;
 const BASE_PRICE = 0.000001;
 const PRICE_STEP = 1.6;
+const ISSUER_RESERVE_XLM = 2;
 
 const server = new StellarSdk.Horizon.Server(HORIZON_URL);
 
@@ -74,18 +75,37 @@ export function hasTrustline(account, assetCode, issuer) {
 }
 
 export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, liquidityPercent, homeDomain }) {
-  const issuer = sourceAccount.accountId();
-  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const user = sourceAccount.accountId();
+  const issuerKeypair = StellarSdk.Keypair.random();
+  const issuerPublicKey = issuerKeypair.publicKey();
+  const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
+
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  tx.addOperation(StellarSdk.Operation.setOptions({ homeDomain: homeDomain || HOME_DOMAIN }));
+  tx.addOperation(
+    StellarSdk.Operation.createAccount({
+      destination: issuerPublicKey,
+      startingBalance: formatAmount(ISSUER_RESERVE_XLM),
+    })
+  );
+
+  tx.addOperation(
+    StellarSdk.Operation.setOptions({
+      sourceAccount: issuerPublicKey,
+      homeDomain: homeDomain || HOME_DOMAIN,
+      masterWeight: 0,
+    })
+  );
+
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
 
   tx.addOperation(
     StellarSdk.Operation.payment({
-      destination: issuer,
+      sourceAccount: issuerPublicKey,
+      destination: user,
       asset,
       amount: formatAmount(totalSupply),
     })
@@ -108,7 +128,10 @@ export function buildLaunchTransaction({ sourceAccount, assetCode, totalSupply, 
     }
   }
 
-  return tx.setTimeout(300).build();
+  const built = tx.setTimeout(300).build();
+  built.sign(issuerKeypair);
+
+  return { transaction: built, issuerPublicKey };
 }
 
 export function buildBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, minTokensOut }) {
@@ -189,10 +212,11 @@ export function generateStellarToml({ name, code, issuer, description, logoUrl, 
 
 export function estimateLaunchCost(liquidityPercent) {
   const offerCount = liquidityPercent > 0 ? BONDING_RUNGS : 0;
-  const operations = 2 + offerCount;
+  const operations = 4 + offerCount;
   const feeXlm = (operations * 100) / 1e7;
   const reserveXlm = offerCount * RESERVE_PER_ENTRY;
-  return { feeXlm, reserveXlm, operations, offerCount };
+  const issuerReserveXlm = ISSUER_RESERVE_XLM;
+  return { feeXlm, reserveXlm, issuerReserveXlm, operations, offerCount };
 }
 
 export function estimateTradeCost(side) {

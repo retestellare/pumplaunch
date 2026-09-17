@@ -110,19 +110,19 @@ export default function LaunchToken() {
         return;
       }
 
-      const tx = buildLaunchTransaction({
+      const { transaction, issuerPublicKey } = buildLaunchTransaction({
         sourceAccount: account,
         assetCode: sym,
         totalSupply: supply,
         liquidityPercent: liquidity,
         homeDomain,
       });
-      await signAndSubmit(tx);
+      await signAndSubmit(transaction);
 
       const toml = generateStellarToml({
         name: form.name,
         code: sym,
-        issuer: wallet.address,
+        issuer: issuerPublicKey,
         description: form.description,
         logoUrl: imageUrl,
         orgUrl: customDomain ? `https://${customDomain}` : `https://${HOME_DOMAIN}`,
@@ -134,7 +134,7 @@ export default function LaunchToken() {
         description: form.description,
         image_url: imageUrl,
         creator: wallet.address,
-        issuer: wallet.address,
+        issuer: issuerPublicKey,
         asset_code: sym,
         home_domain: homeDomain,
         custom_domain: customDomain || null,
@@ -283,7 +283,7 @@ export default function LaunchToken() {
             <h3 className="font-bold">Confirm Mainnet Launch</h3>
             <div className="space-y-2 text-sm">
               <Row label="Asset" value={form.symbol.toUpperCase()} />
-              <Row label="Issuer" value={`${wallet.address.slice(0, 8)}…${wallet.address.slice(-4)}`} />
+              <Row label="Issuer" value="Auto-generated · Locked" />
               <Row label="Home Domain" value={effectiveDomain} />
               <Row label="Total Supply" value={parseFloat(form.supply).toLocaleString()} />
               <Row label="Liquidity" value={`${liquidity}%`} />
@@ -300,10 +300,21 @@ export default function LaunchToken() {
                 <span className="text-white/80">~{cost.reserveXlm.toFixed(1)} XLM</span>
               </div>
               <div className="flex items-center justify-between text-xs">
+                <span className="text-white/40">Issuer Reserve (non-refundable)</span>
+                <span className="text-white/80">~{cost.issuerReserveXlm} XLM</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
                 <span className="text-white/40">Bonding Rungs</span>
                 <span className="text-white/80">{cost.offerCount} sell offers</span>
               </div>
             </div>
+          </div>
+
+          <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3">
+            <p className="text-xs text-white/60">
+              A dedicated issuing account is created and permanently locked to ensure fixed supply. Your
+              wallet establishes a trustline and receives the personal portion directly.
+            </p>
           </div>
 
           <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl p-3">
