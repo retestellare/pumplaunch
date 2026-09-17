@@ -47,6 +47,13 @@ export default function PostCard({ post, onChange }) {
         )}
       </div>
       <p className="text-sm text-white/90 mb-3">{post.content}</p>
+      {post.image_url && (
+        <img
+          src={post.image_url}
+          alt="post attachment"
+          className="w-full rounded-xl mb-3 max-h-72 object-cover"
+        />
+      )}
       {post.position_size ? (
         <div className="flex gap-2 mb-3">
           <div className="flex-1 bg-black/30 rounded-lg p-2">

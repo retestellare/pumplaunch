@@ -8,6 +8,9 @@
     "author": {
       "type": "string"
     },
+    "image_url": {
+      "type": "string"
+    },
     "token_symbol": {
       "type": "string"
     },
