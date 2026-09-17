@@ -97,19 +97,16 @@ export function buildLaunchSetupTransaction({ sourceAccount, assetCode, homeDoma
   return { transaction: built, issuerKeypair, issuerPublicKey };
 }
 
-export function buildLaunchIssueTransaction({ sourceAccount, issuerKeypair, assetCode, totalSupply, liquidityPercent, homeDomain }) {
-  const user = sourceAccount.accountId();
-  const issuerPublicKey = issuerKeypair.publicKey();
-  const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
+export function buildIssuerSetupTransaction({ issuerAccount, userAddress, assetCode, totalSupply, homeDomain }) {
+  const asset = new StellarSdk.Asset(assetCode, issuerAccount.accountId());
 
-  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+  const tx = new StellarSdk.TransactionBuilder(issuerAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
   tx.addOperation(
     StellarSdk.Operation.setOptions({
-      sourceAccount: issuerPublicKey,
       homeDomain: homeDomain || HOME_DOMAIN,
       masterWeight: 0,
     })
@@ -117,32 +114,38 @@ export function buildLaunchIssueTransaction({ sourceAccount, issuerKeypair, asse
 
   tx.addOperation(
     StellarSdk.Operation.payment({
-      sourceAccount: issuerPublicKey,
-      destination: user,
+      destination: userAddress,
       asset,
       amount: formatAmount(totalSupply),
     })
   );
 
-  const liquidityAmount = (totalSupply * liquidityPercent) / 100;
-  if (liquidityAmount > 0) {
-    const rungAmount = liquidityAmount / BONDING_RUNGS;
-    for (let i = 0; i < BONDING_RUNGS; i++) {
-      const price = BASE_PRICE * Math.pow(PRICE_STEP, i);
-      tx.addOperation(
-        StellarSdk.Operation.manageSellOffer({
-          selling: asset,
-          buying: StellarSdk.Asset.native(),
-          amount: formatAmount(rungAmount),
-          price: formatPrice(price),
-          offerId: '0',
-        })
-      );
-    }
+  return tx.setTimeout(300).build();
+}
+
+export function buildBondingCurveTransaction({ userAccount, assetCode, issuerPublicKey, liquidityAmount }) {
+  const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
+
+  const tx = new StellarSdk.TransactionBuilder(userAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  const rungAmount = liquidityAmount / BONDING_RUNGS;
+  for (let i = 0; i < BONDING_RUNGS; i++) {
+    const price = BASE_PRICE * Math.pow(PRICE_STEP, i);
+    tx.addOperation(
+      StellarSdk.Operation.manageSellOffer({
+        selling: asset,
+        buying: StellarSdk.Asset.native(),
+        amount: formatAmount(rungAmount),
+        price: formatPrice(price),
+        offerId: '0',
+      })
+    );
   }
 
-  const built = tx.setTimeout(300).build();
-  return built;
+  return tx.setTimeout(300).build();
 }
 
 export function buildBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, minTokensOut }) {
@@ -191,7 +194,7 @@ export function buildSellTransaction({ sourceAccount, assetCode, issuer, tokenAm
   return tx.setTimeout(300).build();
 }
 
-export async function signAndSubmit(transaction, postSignKeypairs = []) {
+export async function signAndSubmit(transaction) {
   ensureKitInit();
   try {
     const { address } = await StellarWalletsKit.getAddress();
@@ -200,10 +203,17 @@ export async function signAndSubmit(transaction, postSignKeypairs = []) {
       networkPassphrase: NETWORK_PASSPHRASE,
     });
     const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
-    for (const kp of postSignKeypairs) {
-      signedTx.sign(kp);
-    }
     const result = await server.submitTransaction(signedTx, { skipMemoRequiredCheck: true });
+    return result;
+  } catch (e) {
+    throw new Error(extractError(e));
+  }
+}
+
+export async function submitProgrammatically(transaction, keypair) {
+  try {
+    transaction.sign(keypair);
+    const result = await server.submitTransaction(transaction, { skipMemoRequiredCheck: true });
     return result;
   } catch (e) {
     throw new Error(extractError(e));

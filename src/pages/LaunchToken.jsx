@@ -8,7 +8,9 @@ import WalletButton from '@/components/WalletButton';
 import {
   loadAccount,
   buildLaunchSetupTransaction,
-  buildLaunchIssueTransaction,
+  buildIssuerSetupTransaction,
+  buildBondingCurveTransaction,
+  submitProgrammatically,
   signAndSubmit,
   generateStellarToml,
   estimateLaunchCost,
@@ -126,16 +128,29 @@ export default function LaunchToken() {
       const issuerAccount = await loadAccount(issuerPublicKey);
       if (!issuerAccount) throw new Error('Issuer account not found after creation');
 
-      const account2 = await loadAccount(wallet.address);
-      const issueTx = buildLaunchIssueTransaction({
-        sourceAccount: account2,
-        issuerKeypair,
+      const issueTx = buildIssuerSetupTransaction({
+        issuerAccount,
+        userAddress: wallet.address,
         assetCode: sym,
         totalSupply: supply,
-        liquidityPercent: liquidity,
         homeDomain,
       });
-      await signAndSubmit(issueTx, [issuerKeypair]);
+      await submitProgrammatically(issueTx, issuerKeypair);
+
+      setLoadingStep('Seeding liquidity…');
+      await new Promise((r) => setTimeout(r, 5000));
+
+      const userAccount = await loadAccount(wallet.address);
+      const liquidityAmount = (supply * liquidity) / 100;
+      if (liquidityAmount > 0) {
+        const bondingTx = buildBondingCurveTransaction({
+          userAccount,
+          assetCode: sym,
+          issuerPublicKey,
+          liquidityAmount,
+        });
+        await signAndSubmit(bondingTx);
+      }
 
       const toml = generateStellarToml({
         name: form.name,
