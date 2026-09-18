@@ -37,6 +37,16 @@
       "type": "number",
       "default": 100
     },
+    "curve": {
+      "type": "string",
+      "enum": [
+        "slow",
+        "medium",
+        "fast",
+        "hyper"
+      ],
+      "default": "slow"
+    },
     "toml_content": {
       "type": "string"
     },

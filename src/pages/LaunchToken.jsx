@@ -14,6 +14,7 @@ import {
   signAndSubmit,
   generateStellarToml,
   estimateLaunchCost,
+  CURVE_PRESETS,
   HOME_DOMAIN,
 } from '@/lib/stellar';
 import { ImagePlus } from 'lucide-react';
@@ -23,6 +24,14 @@ const DISTRIBUTION_OPTIONS = [
   { value: 80, label: '80 / 20', desc: 'Keep 20% in your wallet, seed 80% to the DEX' },
   { value: 50, label: '50 / 50', desc: 'Keep 50% in your wallet, seed 50% to the DEX' },
 ];
+
+const CURVE_OPTIONS = Object.entries(CURVE_PRESETS).map(([key, p]) => ({
+  value: key,
+  label: p.label,
+  desc: p.desc,
+  rungs: p.rungs,
+  step: p.priceStep,
+}));
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 
@@ -36,6 +45,7 @@ export default function LaunchToken() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', symbol: '', description: '', supply: '1000000000', customDomain: '' });
   const [liquidity, setLiquidity] = useState(100);
+  const [curve, setCurve] = useState('slow');
   const [step, setStep] = useState('form');
   const [loading, setLoading] = useState(false);
   const [imageFile, setImageFile] = useState(null);
@@ -143,11 +153,14 @@ export default function LaunchToken() {
       const userAccount = await loadAccount(wallet.address);
       const liquidityAmount = (supply * liquidity) / 100;
       if (liquidityAmount > 0) {
+        const curvePreset = CURVE_PRESETS[curve];
         const bondingTx = buildBondingCurveTransaction({
           userAccount,
           assetCode: sym,
           issuerPublicKey,
           liquidityAmount,
+          rungs: curvePreset.rungs,
+          priceStep: curvePreset.priceStep,
         });
         await signAndSubmit(bondingTx);
       }
@@ -173,6 +186,7 @@ export default function LaunchToken() {
         custom_domain: customDomain || null,
         supply,
         liquidity_percent: liquidity,
+        curve,
         toml_content: toml,
         price: 0.000001,
         market_cap: 0.000001 * supply,
@@ -199,7 +213,8 @@ export default function LaunchToken() {
     setLoadingStep('');
   };
 
-  const cost = estimateLaunchCost(liquidity);
+  const curvePreset = CURVE_PRESETS[curve];
+  const cost = estimateLaunchCost(liquidity, curvePreset.rungs);
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
 
   return (
@@ -303,6 +318,35 @@ export default function LaunchToken() {
             </div>
           </div>
 
+          <div>
+            <label className="text-xs text-white/40 mb-2 block">Price Curve</label>
+            <div className="space-y-2">
+              {CURVE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCurve(opt.value)}
+                  className={`w-full text-left px-4 py-3 rounded-xl border transition ${
+                    curve === opt.value
+                      ? 'border-[#00ff88] bg-[#00ff88]/5'
+                      : 'border-white/5 bg-[#141518]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm">{opt.label}</span>
+                    {curve === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
+                  </div>
+                  <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
+                  <div className="text-[10px] text-white/30 mt-0.5">{opt.rungs} rungs · {opt.step}× step</div>
+                </button>
+              ))}
+            </div>
+            {(curve === 'fast' || curve === 'hyper') && (
+              <div className="mt-2 bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl px-3 py-2">
+                <p className="text-xs text-white/60">⚠ Prices rise sharply after early buys — later buyers pay much more.</p>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={review}
             disabled={!wallet}
@@ -322,6 +366,8 @@ export default function LaunchToken() {
               <Row label="Total Supply" value={parseFloat(form.supply).toLocaleString()} />
               <Row label="Liquidity" value={`${liquidity}%`} />
               <Row label="Keep" value={`${100 - liquidity}%`} />
+              <Row label="Price Curve" value={curvePreset.label} />
+              <Row label="Bonding Rungs" value={`${curvePreset.rungs} rungs · ${curvePreset.priceStep}× step`} />
               {imageFile && <Row label="Logo" value="✓ Uploaded" />}
             </div>
             <div className="border-t border-white/5 pt-3 space-y-1.5">

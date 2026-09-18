@@ -7,10 +7,15 @@ export const HOME_DOMAIN = 'stellarlaunch.base44.app';
 export const BASE_FEE = StellarSdk.BASE_FEE || '100';
 const RESERVE_PER_ENTRY = 0.5;
 
-const BONDING_RUNGS = 6;
 const BASE_PRICE = 0.000001;
-const PRICE_STEP = 1.6;
 const ISSUER_RESERVE_XLM = 2;
+
+export const CURVE_PRESETS = {
+  slow: { rungs: 6, priceStep: 1.6, label: 'Slow', desc: 'Steady, gradual price growth' },
+  medium: { rungs: 10, priceStep: 2.0, label: 'Medium', desc: 'Moderate acceleration as buys come in' },
+  fast: { rungs: 16, priceStep: 2.8, label: 'Fast', desc: 'Prices climb quickly after early buys' },
+  hyper: { rungs: 24, priceStep: 4.0, label: 'Hyper', desc: 'Volatile spikes — steepest climb' },
+};
 
 const server = new StellarSdk.Horizon.Server(HORIZON_URL);
 
@@ -123,7 +128,7 @@ export function buildIssuerSetupTransaction({ issuerAccount, userAddress, assetC
   return tx.setTimeout(300).build();
 }
 
-export function buildBondingCurveTransaction({ userAccount, assetCode, issuerPublicKey, liquidityAmount }) {
+export function buildBondingCurveTransaction({ userAccount, assetCode, issuerPublicKey, liquidityAmount, rungs = CURVE_PRESETS.slow.rungs, priceStep = CURVE_PRESETS.slow.priceStep }) {
   const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
 
   const tx = new StellarSdk.TransactionBuilder(userAccount, {
@@ -131,9 +136,9 @@ export function buildBondingCurveTransaction({ userAccount, assetCode, issuerPub
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  const rungAmount = liquidityAmount / BONDING_RUNGS;
-  for (let i = 0; i < BONDING_RUNGS; i++) {
-    const price = BASE_PRICE * Math.pow(PRICE_STEP, i);
+  const rungAmount = liquidityAmount / rungs;
+  for (let i = 0; i < rungs; i++) {
+    const price = BASE_PRICE * Math.pow(priceStep, i);
     tx.addOperation(
       StellarSdk.Operation.manageSellOffer({
         selling: asset,
@@ -234,8 +239,8 @@ export function generateStellarToml({ name, code, issuer, description, logoUrl, 
   return lines.join('\n');
 }
 
-export function estimateLaunchCost(liquidityPercent) {
-  const offerCount = liquidityPercent > 0 ? BONDING_RUNGS : 0;
+export function estimateLaunchCost(liquidityPercent, rungs = CURVE_PRESETS.slow.rungs) {
+  const offerCount = liquidityPercent > 0 ? rungs : 0;
   const operations = 4 + offerCount;
   const feeXlm = (operations * 100) / 1e7;
   const reserveXlm = offerCount * RESERVE_PER_ENTRY;
