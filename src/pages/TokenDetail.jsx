@@ -8,6 +8,7 @@ import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
 import BottomNav from '@/components/BottomNav';
 import { fetchAssetStats, formatOnChainTrades, fetchPoolPrice } from '@/lib/stellar';
+import SeedPoolPanel from '@/components/SeedPoolPanel';
 
 export default function TokenDetail() {
   const { id } = useParams();
@@ -16,11 +17,13 @@ export default function TokenDetail() {
   const [liveTrades, setLiveTrades] = useState([]);
   const [ordersKey, setOrdersKey] = useState(0);
   const [poolPrice, setPoolPrice] = useState(null);
+  const [poolMissing, setPoolMissing] = useState(false);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
     setToken(t);
     setPoolPrice(null);
+    setPoolMissing(false);
     setOrdersKey((k) => k + 1);
 
     if (t.issuer && t.asset_code) {
@@ -35,8 +38,9 @@ export default function TokenDetail() {
         try {
           const pool = await fetchPoolPrice(t.asset_code, t.issuer);
           if (pool) setPoolPrice(pool.price);
+          else setPoolMissing(true);
         } catch {
-          /* fall back to stats price */
+          setPoolMissing(true);
         }
       }
     }
@@ -131,6 +135,9 @@ export default function TokenDetail() {
           ))}
         </div>
 
+        {token.is_auto_pool && poolMissing && (
+          <SeedPoolPanel token={token} onSeeded={load} />
+        )}
         <TradingPanel token={token} marketPrice={price} onTrade={load} />
         <OpenOrders token={token} refreshKey={ordersKey} />
 
