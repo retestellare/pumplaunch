@@ -4,3 +4,17 @@ ORG_NAME="Stellar Pump"
 ORG_URL="https://stellarlaunch.base44.app"
 ORG_DESCRIPTION="Memecoin launchpad on the Stellar network. Launch, trade, and discover tokens on Stellar."
 ORG_KEYWORDS="stellar, memecoin, launchpad, crypto, xlm"
+
+[[CURRENCIES]]
+code = "ROKETS"
+issuer = "GBUPZWBBUTFDICDX5KRBPBOC3ISWCEQ6NVHFOV2MY6JQGNQJYVQRGJMA"
+name = "Roket"
+desc = "Rocket meme launch"
+image = "https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/803b1f1bf_29525.png"
+
+[[CURRENCIES]]
+code = "MEME"
+issuer = "GCT2SVON3VOJO4EUVNS54VPU3PCLDDPOKDFZSZTGMM5UVP7AHCQ5Q7ZC"
+name = "Meme coin"
+desc = "Meme token stellar launch 🙂"
+image = "https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/72dddd52a_16416.png"
