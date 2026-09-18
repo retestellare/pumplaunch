@@ -5,6 +5,7 @@ import { base44 } from '@/api/base44Client';
 import TokenIcon from '@/components/TokenIcon';
 import SimpleChart from '@/components/SimpleChart';
 import TradingPanel from '@/components/TradingPanel';
+import OpenOrders from '@/components/OpenOrders';
 import BottomNav from '@/components/BottomNav';
 import { fetchAssetStats, formatOnChainTrades } from '@/lib/stellar';
 
@@ -13,10 +14,12 @@ export default function TokenDetail() {
   const [token, setToken] = useState(null);
   const [liveStats, setLiveStats] = useState(null);
   const [liveTrades, setLiveTrades] = useState([]);
+  const [ordersKey, setOrdersKey] = useState(0);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
     setToken(t);
+    setOrdersKey((k) => k + 1);
 
     if (t.issuer && t.asset_code) {
       try {
@@ -116,7 +119,8 @@ export default function TokenDetail() {
           ))}
         </div>
 
-        <TradingPanel token={token} onTrade={load} />
+        <TradingPanel token={token} marketPrice={price} onTrade={load} />
+        <OpenOrders token={token} refreshKey={ordersKey} />
 
         <div className="bg-[#141518] rounded-2xl p-4">
           <h3 className="font-bold mb-3">Recent Trades</h3>

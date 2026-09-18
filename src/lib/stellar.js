@@ -199,6 +199,108 @@ export function buildSellTransaction({ sourceAccount, assetCode, issuer, tokenAm
   return tx.setTimeout(300).build();
 }
 
+export function buildLimitBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, triggerPrice }) {
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const tokenAmount = xlmAmount / triggerPrice;
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (!hasTrustline(sourceAccount, assetCode, issuer)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
+  }
+
+  tx.addOperation(
+    StellarSdk.Operation.manageBuyOffer({
+      selling: StellarSdk.Asset.native(),
+      buying: asset,
+      buyAmount: formatAmount(tokenAmount),
+      price: formatPrice(triggerPrice),
+      offerId: '0',
+    })
+  );
+
+  return tx.setTimeout(300).build();
+}
+
+export function buildLimitSellTransaction({ sourceAccount, assetCode, issuer, tokenAmount, triggerPrice }) {
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  tx.addOperation(
+    StellarSdk.Operation.manageSellOffer({
+      selling: asset,
+      buying: StellarSdk.Asset.native(),
+      amount: formatAmount(tokenAmount),
+      price: formatPrice(triggerPrice),
+      offerId: '0',
+    })
+  );
+
+  return tx.setTimeout(300).build();
+}
+
+export function buildCancelOfferTransaction({ sourceAccount, side, assetCode, issuer, offerId, price }) {
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (side === 'buy') {
+    tx.addOperation(
+      StellarSdk.Operation.manageBuyOffer({
+        selling: StellarSdk.Asset.native(),
+        buying: asset,
+        buyAmount: '0',
+        price: formatPrice(price),
+        offerId: String(offerId),
+      })
+    );
+  } else {
+    tx.addOperation(
+      StellarSdk.Operation.manageSellOffer({
+        selling: asset,
+        buying: StellarSdk.Asset.native(),
+        amount: '0',
+        price: formatPrice(price),
+        offerId: String(offerId),
+      })
+    );
+  }
+
+  return tx.setTimeout(300).build();
+}
+
+export async function fetchOpenOrders(address, assetCode, issuer) {
+  const res = await fetch(`${HORIZON_URL}/accounts/${address}/offers?limit=200`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  const records = data._embedded?.records || [];
+  return records
+    .filter((r) => {
+      const sellingToken = r.selling.asset_code === assetCode && r.selling.asset_issuer === issuer;
+      const buyingToken = r.buying.asset_code === assetCode && r.buying.asset_issuer === issuer;
+      return sellingToken || buyingToken;
+    })
+    .map((r) => {
+      const isBuy = r.buying.asset_code === assetCode && r.buying.asset_issuer === issuer;
+      const offerPrice = parseFloat(r.price);
+      const sellingAmount = parseFloat(r.amount);
+      const tokenAmount = isBuy ? sellingAmount / offerPrice : sellingAmount;
+      return {
+        offerId: r.id,
+        side: isBuy ? 'buy' : 'sell',
+        price: offerPrice,
+        amount: tokenAmount,
+      };
+    });
+}
+
 export async function signAndSubmit(transaction) {
   ensureKitInit();
   try {

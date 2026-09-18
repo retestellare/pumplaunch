@@ -7,22 +7,36 @@ import {
   parseBalances,
   buildBuyTransaction,
   buildSellTransaction,
+  buildLimitBuyTransaction,
+  buildLimitSellTransaction,
   signAndSubmit,
   estimateTradeCost,
 } from '@/lib/stellar';
+import TriggerPriceModal from '@/components/TriggerPriceModal';
 
-export default function TradingPanel({ token, onTrade }) {
+const LIMIT_PRESETS = [5, 10, 20];
+
+export default function TradingPanel({ token, marketPrice, onTrade }) {
   const { wallet } = useWallet();
   const { toast } = useToast();
   const [side, setSide] = useState('buy');
+  const [mode, setMode] = useState('market');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [xlmBalance, setXlmBalance] = useState(0);
   const [tokenBalance, setTokenBalance] = useState(0);
+  const [triggerPrice, setTriggerPrice] = useState(0);
+  const [showModal, setShowModal] = useState(false);
 
-  const price = token.price || 0.000001;
+  const price = marketPrice || token.price || 0.000001;
   const isOnChain = !!(token.issuer && token.asset_code);
+
+  useEffect(() => {
+    if (mode === 'limit' && triggerPrice === 0 && price > 0) {
+      setTriggerPrice(price);
+    }
+  }, [mode, price]);
 
   const refreshBalances = async () => {
     if (!wallet?.address) return;
@@ -65,9 +79,14 @@ export default function TradingPanel({ token, onTrade }) {
   }, [wallet?.address, token?.id]);
 
   const balance = side === 'buy' ? xlmBalance : tokenBalance;
+  const effectivePrice = mode === 'limit' ? triggerPrice : price;
   const estOut = side === 'buy'
-    ? (parseFloat(amount) || 0) / price
-    : (parseFloat(amount) || 0) * price;
+    ? (parseFloat(amount) || 0) / effectivePrice
+    : (parseFloat(amount) || 0) * effectivePrice;
+
+  const applyPreset = (pct) => {
+    setTriggerPrice(side === 'buy' ? price * (1 - pct / 100) : price * (1 + pct / 100));
+  };
 
   const startConfirm = () => {
     if (!wallet) {
@@ -87,6 +106,10 @@ export default function TradingPanel({ token, onTrade }) {
       });
       return;
     }
+    if (mode === 'limit' && (!triggerPrice || triggerPrice <= 0)) {
+      toast({ title: 'Set a trigger price first', variant: 'destructive' });
+      return;
+    }
     setConfirm({ amount: amt, estOut });
   };
 
@@ -100,35 +123,57 @@ export default function TradingPanel({ token, onTrade }) {
         return;
       }
       let tx;
-      if (side === 'buy') {
-        tx = buildBuyTransaction({
-          sourceAccount: account,
-          assetCode: token.asset_code,
-          issuer: token.issuer,
-          xlmAmount: confirm.amount,
-          minTokensOut: confirm.estOut * 0.9,
-        });
+      if (mode === 'limit') {
+        if (side === 'buy') {
+          tx = buildLimitBuyTransaction({
+            sourceAccount: account,
+            assetCode: token.asset_code,
+            issuer: token.issuer,
+            xlmAmount: confirm.amount,
+            triggerPrice,
+          });
+        } else {
+          tx = buildLimitSellTransaction({
+            sourceAccount: account,
+            assetCode: token.asset_code,
+            issuer: token.issuer,
+            tokenAmount: confirm.amount,
+            triggerPrice,
+          });
+        }
       } else {
-        tx = buildSellTransaction({
-          sourceAccount: account,
-          assetCode: token.asset_code,
-          issuer: token.issuer,
-          tokenAmount: confirm.amount,
-          minXlmOut: confirm.estOut * 0.9,
-        });
+        if (side === 'buy') {
+          tx = buildBuyTransaction({
+            sourceAccount: account,
+            assetCode: token.asset_code,
+            issuer: token.issuer,
+            xlmAmount: confirm.amount,
+            minTokensOut: confirm.estOut * 0.9,
+          });
+        } else {
+          tx = buildSellTransaction({
+            sourceAccount: account,
+            assetCode: token.asset_code,
+            issuer: token.issuer,
+            tokenAmount: confirm.amount,
+            minXlmOut: confirm.estOut * 0.9,
+          });
+        }
       }
       await signAndSubmit(tx);
-      await base44.entities.Trade.create({
-        token_id: token.id,
-        token_symbol: token.symbol,
-        token_name: token.name,
-        type: side,
-        amount_xlm: side === 'buy' ? confirm.amount : confirm.estOut,
-        tokens: side === 'buy' ? confirm.estOut : confirm.amount,
-        price: token.price,
-        user_address: wallet.address,
-      });
-      toast({ title: `${side === 'buy' ? 'Bought' : 'Sold'} on mainnet!` });
+      if (mode === 'market') {
+        await base44.entities.Trade.create({
+          token_id: token.id,
+          token_symbol: token.symbol,
+          token_name: token.name,
+          type: side,
+          amount_xlm: side === 'buy' ? confirm.amount : confirm.estOut,
+          tokens: side === 'buy' ? confirm.estOut : confirm.amount,
+          price: token.price,
+          user_address: wallet.address,
+        });
+      }
+      toast({ title: mode === 'limit' ? 'Limit order placed!' : `${side === 'buy' ? 'Bought' : 'Sold'} on mainnet!` });
       setConfirm(null);
       setAmount('');
       await refreshBalances();
@@ -140,9 +185,29 @@ export default function TradingPanel({ token, onTrade }) {
   };
 
   const cost = estimateTradeCost(side);
+  const delta = price > 0 && triggerPrice > 0 ? ((triggerPrice - price) / price) * 100 : 0;
 
   return (
     <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
+      <div className="flex gap-2 p-1 bg-black/30 rounded-xl">
+        <button
+          onClick={() => setMode('market')}
+          className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
+            mode === 'market' ? 'bg-white/10 text-white' : 'text-white/40'
+          }`}
+        >
+          Market
+        </button>
+        <button
+          onClick={() => setMode('limit')}
+          className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
+            mode === 'limit' ? 'bg-white/10 text-white' : 'text-white/40'
+          }`}
+        >
+          Limit
+        </button>
+      </div>
+
       <div className="flex gap-2 p-1 bg-black/30 rounded-xl">
         <button
           onClick={() => setSide('buy')}
@@ -161,6 +226,37 @@ export default function TradingPanel({ token, onTrade }) {
           Sell
         </button>
       </div>
+
+      {mode === 'limit' && (
+        <div>
+          <div className="flex items-center justify-between text-xs text-white/40 mb-1.5">
+            <span>Trigger Price (XLM)</span>
+            <button onClick={() => setShowModal(true)} className="text-[#00ff88] font-medium">
+              Set Custom
+            </button>
+          </div>
+          <div className="bg-black/30 border border-white/5 rounded-xl px-3 py-2.5 flex items-center justify-between">
+            <span className="text-lg font-semibold">{triggerPrice > 0 ? triggerPrice.toFixed(8) : '—'}</span>
+            {triggerPrice > 0 && (
+              <span className={`text-xs font-medium ${delta >= 0 ? 'text-[#00ff88]' : 'text-[#ff3b5c]'}`}>
+                {delta >= 0 ? '+' : ''}{delta.toFixed(2)}%
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2 mt-2">
+            {LIMIT_PRESETS.map((p) => (
+              <button
+                key={p}
+                onClick={() => applyPreset(p)}
+                className="flex-1 py-1.5 rounded-lg bg-white/5 text-xs text-white/60 font-medium hover:bg-white/10"
+              >
+                {side === 'buy' ? '−' : '+'}{p}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div>
         <div className="flex items-center justify-between text-xs text-white/40 mb-1.5">
           <span>{side === 'buy' ? 'Amount (XLM)' : `Amount (${token.symbol})`}</span>
@@ -193,12 +289,18 @@ export default function TradingPanel({ token, onTrade }) {
 
       {confirm && (
         <div className="bg-black/40 rounded-xl p-3 space-y-1.5 border border-white/5">
+          {mode === 'limit' && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/40">Trigger Price</span>
+              <span className="font-medium">{triggerPrice.toFixed(8)} XLM</span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs">
             <span className="text-white/40">You {side === 'buy' ? 'send' : 'sell'}</span>
             <span className="font-medium">{confirm.amount} {side === 'buy' ? 'XLM' : token.symbol}</span>
           </div>
           <div className="flex items-center justify-between text-xs">
-            <span className="text-white/40">You receive (est)</span>
+            <span className="text-white/40">{mode === 'limit' ? 'Order size' : 'You receive (est)'}</span>
             <span className="font-medium">{confirm.estOut.toFixed(2)} {side === 'buy' ? token.symbol : 'XLM'}</span>
           </div>
           <div className="flex items-center justify-between text-xs">
@@ -230,7 +332,7 @@ export default function TradingPanel({ token, onTrade }) {
               side === 'buy' ? 'bg-[#00ff88] text-black' : 'bg-[#ff3b5c] text-black'
             }`}
           >
-            {busy ? 'Processing…' : 'Confirm on mainnet'}
+            {busy ? 'Processing…' : mode === 'limit' ? 'Place Limit Order' : 'Confirm on mainnet'}
           </button>
         </div>
       ) : (
@@ -240,8 +342,22 @@ export default function TradingPanel({ token, onTrade }) {
             side === 'buy' ? 'bg-[#00ff88] text-black' : 'bg-[#ff3b5c] text-black'
           }`}
         >
-          {wallet ? `${side === 'buy' ? 'Buy' : 'Sell'} $${token.symbol}` : 'Connect Wallet'}
+          {wallet ? `${mode === 'limit' ? 'Limit ' : ''}${side === 'buy' ? 'Buy' : 'Sell'} $${token.symbol}` : 'Connect Wallet'}
         </button>
+      )}
+
+      {showModal && (
+        <TriggerPriceModal
+          marketPrice={price}
+          side={side}
+          symbol={token.symbol}
+          initialPrice={triggerPrice || price}
+          onClose={() => setShowModal(false)}
+          onSave={(p) => {
+            setTriggerPrice(p);
+            setShowModal(false);
+          }}
+        />
       )}
     </div>
   );
