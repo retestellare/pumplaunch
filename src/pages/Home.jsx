@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import PageLayout from '@/components/PageLayout';
 import TokenCard from '@/components/TokenCard';
 import WalletButton from '@/components/WalletButton';
+import { fetchAssetStats } from '@/lib/stellar';
 
 const TABS = [
   { key: 'hot', label: '🔥 Hot' },
@@ -16,15 +17,44 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       setLoading(true);
       let list = await base44.entities.Token.list('-created_date', 100);
       if (tab === 'hot') list = [...list].sort((a, b) => (b.volume_24h || 0) - (a.volume_24h || 0));
       else if (tab === 'holders') list = [...list].sort((a, b) => (b.holders || 0) - (a.holders || 0));
       else list = [...list].sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+      if (!active) return;
       setTokens(list);
       setLoading(false);
+
+      // Enrich with live on-chain data (first 20 tokens)
+      const toEnrich = list.slice(0, 20).filter((t) => t.issuer && t.asset_code);
+      for (const t of toEnrich) {
+        try {
+          const stats = await fetchAssetStats(t.asset_code, t.issuer);
+          if (!active) return;
+          setTokens((prev) =>
+            prev.map((p) =>
+              p.id === t.id
+                ? {
+                    ...p,
+                    holders: stats.holders || p.holders,
+                    volume_24h: stats.volume24h || p.volume_24h || 0,
+                    price: stats.price > 0 ? stats.price : p.price,
+                    market_cap: stats.price > 0 ? stats.price * (p.supply || 0) : p.market_cap,
+                  }
+                : p
+            )
+          );
+        } catch {
+          /* skip */
+        }
+      }
     })();
+    return () => {
+      active = false;
+    };
   }, [tab]);
 
   return (

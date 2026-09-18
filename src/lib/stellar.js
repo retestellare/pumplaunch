@@ -243,6 +243,113 @@ export function estimateLaunchCost(liquidityPercent) {
   return { feeXlm, reserveXlm, issuerReserveXlm, operations, offerCount };
 }
 
+export async function fetchAssetStats(assetCode, issuer) {
+  const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+
+  const [holdersRes, tradesAsBaseRes, tradesAsCounterRes, orderBookRes] = await Promise.all([
+    fetch(`${HORIZON_URL}/accounts?asset=${assetCode}:${issuer}&limit=200`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`).catch(() => null),
+  ]);
+
+  let holders = 0;
+  if (holdersRes?.ok) {
+    const data = await holdersRes.json();
+    holders = (data._embedded?.records || []).length;
+  }
+
+  let allTrades = [];
+  if (tradesAsBaseRes?.ok) {
+    const data = await tradesAsBaseRes.json();
+    allTrades = allTrades.concat(data._embedded?.records || []);
+  }
+  if (tradesAsCounterRes?.ok) {
+    const data = await tradesAsCounterRes.json();
+    allTrades = allTrades.concat(data._embedded?.records || []);
+  }
+  allTrades.sort((a, b) => new Date(b.ledger_close_time) - new Date(a.ledger_close_time));
+
+  let price = 0;
+  if (orderBookRes?.ok) {
+    const ob = await orderBookRes.json();
+    const asks = ob.asks || [];
+    const bids = ob.bids || [];
+    if (asks.length > 0) {
+      price = parseFloat(asks[0].price_r.n) / parseFloat(asks[0].price_r.d);
+    } else if (bids.length > 0) {
+      price = parseFloat(bids[0].price_r.n) / parseFloat(bids[0].price_r.d);
+    }
+  }
+  if (price === 0 && allTrades.length > 0) {
+    const last = allTrades[0];
+    const isTokenBase = last.base_asset_code === assetCode && last.base_asset_issuer === issuer;
+    price = isTokenBase
+      ? parseFloat(last.price.n) / parseFloat(last.price.d)
+      : parseFloat(last.price.d) / parseFloat(last.price.n);
+  }
+
+  const now = Date.now();
+  const oneDayAgo = now - 24 * 60 * 60 * 1000;
+  let volume24h = 0;
+  for (const trade of allTrades) {
+    const ts = new Date(trade.ledger_close_time).getTime();
+    if (ts >= oneDayAgo) {
+      if (trade.counter_asset_type === 'native') {
+        volume24h += parseFloat(trade.counter_amount);
+      } else if (trade.base_asset_type === 'native') {
+        volume24h += parseFloat(trade.base_amount);
+      }
+    }
+  }
+
+  // Build price history from trades (oldest → newest)
+  const priceHistory = allTrades
+    .slice()
+    .reverse()
+    .map((t) => {
+      const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
+      return isTokenBase
+        ? parseFloat(t.price.n) / parseFloat(t.price.d)
+        : parseFloat(t.price.d) / parseFloat(t.price.n);
+    })
+    .filter((p) => p > 0);
+
+  return { holders, trades: allTrades, price, volume24h, priceHistory };
+}
+
+export function formatOnChainTrades(trades, assetCode, issuer, maxCount = 20) {
+  return trades.slice(0, maxCount).map((t) => {
+    let xlmAmount = 0;
+    let tokenAmount = 0;
+    let isBuy = false;
+
+    if (t.counter_asset_type === 'native') {
+      xlmAmount = parseFloat(t.counter_amount);
+      tokenAmount = parseFloat(t.base_amount);
+      isBuy = true;
+    } else if (t.base_asset_type === 'native') {
+      xlmAmount = parseFloat(t.base_amount);
+      tokenAmount = parseFloat(t.counter_amount);
+      isBuy = false;
+    }
+
+    let tradePrice = 0;
+    const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
+    tradePrice = isTokenBase
+      ? parseFloat(t.price.n) / parseFloat(t.price.d)
+      : parseFloat(t.price.d) / parseFloat(t.price.n);
+
+    return {
+      type: isBuy ? 'buy' : 'sell',
+      amount_xlm: xlmAmount,
+      tokens: tokenAmount,
+      price: tradePrice,
+      time: t.ledger_close_time,
+    };
+  });
+}
+
 export function estimateTradeCost(side) {
   const ops = side === 'buy' ? 2 : 1;
   const feeXlm = (ops * 100) / 1e7;
