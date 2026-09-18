@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
-import { loadAccount, parseBalances } from '@/lib/stellar';
+import { loadAccount, parseBalances, fetchTokenMetadata } from '@/lib/stellar';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import TokenIcon from '@/components/TokenIcon';
@@ -9,6 +9,7 @@ import TokenIcon from '@/components/TokenIcon';
 export default function Portfolio() {
   const { wallet } = useWallet();
   const [balances, setBalances] = useState(null);
+  const [enrichedAssets, setEnrichedAssets] = useState([]);
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,6 +40,52 @@ export default function Portfolio() {
       active = false;
     };
   }, [wallet?.address]);
+
+  useEffect(() => {
+    if (!balances?.assets?.length) {
+      setEnrichedAssets([]);
+      return;
+    }
+    let active = true;
+    (async () => {
+      let tokenMap = {};
+      try {
+        const appTokens = await base44.entities.Token.list('-created_date', 300);
+        for (const t of appTokens) {
+          if (t.issuer) tokenMap[t.issuer] = t;
+        }
+      } catch {
+        /* ignore */
+      }
+
+      const enriched = await Promise.all(
+        balances.assets.map(async (a) => {
+          const appToken = tokenMap[a.issuer];
+          if (appToken) {
+            return {
+              ...a,
+              image_url: appToken.image_url,
+              name: appToken.name,
+              domain: appToken.custom_domain || appToken.home_domain,
+              symbol: appToken.symbol,
+            };
+          }
+          const meta = await fetchTokenMetadata(a.code, a.issuer);
+          return {
+            ...a,
+            image_url: meta?.logo || null,
+            name: meta?.name || a.code,
+            domain: meta?.homeDomain || null,
+            symbol: a.code,
+          };
+        })
+      );
+      if (active) setEnrichedAssets(enriched);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [balances]);
 
   if (!wallet) {
     return (
@@ -74,12 +121,14 @@ export default function Portfolio() {
           ) : !balances || balances.assets.length === 0 ? (
             <p className="text-sm text-white/30 px-1">No trustline assets yet.</p>
           ) : (
-            balances.assets.map((a, i) => (
+            (enrichedAssets.length > 0 ? enrichedAssets : balances.assets).map((a, i) => (
               <div key={i} className="flex items-center gap-3 px-3 py-3 bg-[#141518] rounded-xl mb-2">
                 <TokenIcon token={a} size={36} />
-                <div className="flex-1">
-                  <div className="font-semibold text-sm">${a.code}</div>
-                  <div className="text-xs text-white/40 truncate">{a.issuer.slice(0, 8)}…{a.issuer.slice(-4)}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm">${a.symbol || a.code}</div>
+                  <div className="text-xs text-white/40 truncate">
+                    {a.domain || `${a.issuer.slice(0, 8)}…${a.issuer.slice(-4)}`}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-medium">{a.balance.toFixed(2)}</div>

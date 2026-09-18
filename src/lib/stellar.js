@@ -474,3 +474,62 @@ export function estimateTradeCost(side) {
   const reserveXlm = side === 'buy' ? RESERVE_PER_ENTRY : 0;
   return { feeXlm, reserveXlm, operations: ops };
 }
+
+function parseTomlCurrency(toml, code) {
+  const lines = toml.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === '[[CURRENCIES]]') {
+      let blockCode = null;
+      let logo = null;
+      let name = null;
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j].trim();
+        if (l.startsWith('[')) break;
+        const eqIdx = l.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = l.substring(0, eqIdx).trim().toUpperCase();
+        const val = l.substring(eqIdx + 1).replace(/"/g, '').trim();
+        if (key === 'CURRENCY_CODE') blockCode = val;
+        else if (key === 'CURRENCY_LOGO') logo = val;
+        else if (key === 'CURRENCY_NAME') name = val;
+      }
+      if (blockCode === code) return { logo, name };
+    }
+  }
+  return null;
+}
+
+export async function fetchTokenMetadata(assetCode, issuer) {
+  try {
+    const accountRes = await fetch(`${HORIZON_URL}/accounts/${issuer}`);
+    if (!accountRes.ok) return null;
+    const accountData = await accountRes.json();
+    const homeDomain = accountData.home_domain;
+    if (!homeDomain) return null;
+
+    const base = homeDomain.startsWith('http')
+      ? homeDomain.replace(/\/$/, '')
+      : `https://${homeDomain}`;
+    const tomlUrl = `${base}/.well-known/stellar.toml`;
+
+    let logo = null;
+    let name = null;
+    try {
+      const tomlRes = await fetch(tomlUrl);
+      if (tomlRes.ok) {
+        const toml = await tomlRes.text();
+        const parsed = parseTomlCurrency(toml, assetCode);
+        if (parsed) {
+          logo = parsed.logo;
+          name = parsed.name;
+        }
+      }
+    } catch {
+      /* CORS or network — skip toml */
+    }
+
+    return { homeDomain, logo, name };
+  } catch {
+    return null;
+  }
+}
