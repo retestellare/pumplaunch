@@ -37,6 +37,10 @@
       "type": "number",
       "default": 100
     },
+    "is_auto_pool": {
+      "type": "boolean",
+      "default": false
+    },
     "curve": {
       "type": "string",
       "enum": [

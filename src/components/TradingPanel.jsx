@@ -9,6 +9,8 @@ import {
   buildSellTransaction,
   buildLimitBuyTransaction,
   buildLimitSellTransaction,
+  buildPoolBuyTransaction,
+  buildPoolSellTransaction,
   signAndSubmit,
   estimateTradeCost,
 } from '@/lib/stellar';
@@ -31,6 +33,7 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
 
   const price = marketPrice || token.price || 0.000001;
   const isOnChain = !!(token.issuer && token.asset_code);
+  const isAutoPool = !!token.is_auto_pool;
 
   useEffect(() => {
     if (mode === 'limit' && triggerPrice === 0 && price > 0) {
@@ -142,7 +145,25 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
           });
         }
       } else {
-        if (side === 'buy') {
+        if (isAutoPool) {
+          if (side === 'buy') {
+            tx = buildPoolBuyTransaction({
+              sourceAccount: account,
+              assetCode: token.asset_code,
+              issuer: token.issuer,
+              xlmAmount: confirm.amount,
+              minTokensOut: confirm.estOut * 0.9,
+            });
+          } else {
+            tx = buildPoolSellTransaction({
+              sourceAccount: account,
+              assetCode: token.asset_code,
+              issuer: token.issuer,
+              tokenAmount: confirm.amount,
+              minXlmOut: confirm.estOut * 0.9,
+            });
+          }
+        } else if (side === 'buy') {
           tx = buildBuyTransaction({
             sourceAccount: account,
             assetCode: token.asset_code,
@@ -189,24 +210,26 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
 
   return (
     <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
-      <div className="flex gap-2 p-1 bg-black/30 rounded-xl">
-        <button
-          onClick={() => setMode('market')}
-          className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
-            mode === 'market' ? 'bg-white/10 text-white' : 'text-white/40'
-          }`}
-        >
-          Market
-        </button>
-        <button
-          onClick={() => setMode('limit')}
-          className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
-            mode === 'limit' ? 'bg-white/10 text-white' : 'text-white/40'
-          }`}
-        >
-          Limit
-        </button>
-      </div>
+      {!isAutoPool && (
+        <div className="flex gap-2 p-1 bg-black/30 rounded-xl">
+          <button
+            onClick={() => setMode('market')}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
+              mode === 'market' ? 'bg-white/10 text-white' : 'text-white/40'
+            }`}
+          >
+            Market
+          </button>
+          <button
+            onClick={() => setMode('limit')}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
+              mode === 'limit' ? 'bg-white/10 text-white' : 'text-white/40'
+            }`}
+          >
+            Limit
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-2 p-1 bg-black/30 rounded-xl">
         <button
@@ -332,7 +355,7 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
               side === 'buy' ? 'bg-[#00ff88] text-black' : 'bg-[#ff3b5c] text-black'
             }`}
           >
-            {busy ? 'Processing…' : mode === 'limit' ? 'Place Limit Order' : 'Confirm on mainnet'}
+            {busy ? 'Processing…' : mode === 'limit' ? 'Place Limit Order' : isAutoPool ? 'Swap via Liquidity Pool' : 'Confirm on mainnet'}
           </button>
         </div>
       ) : (

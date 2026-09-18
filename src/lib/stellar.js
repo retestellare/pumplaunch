@@ -7,7 +7,7 @@ export const HOME_DOMAIN = 'stellarlaunch.base44.app';
 export const BASE_FEE = StellarSdk.BASE_FEE || '100';
 const RESERVE_PER_ENTRY = 0.5;
 
-const BASE_PRICE = 0.000001;
+export const BASE_PRICE = 0.000001;
 const ISSUER_RESERVE_XLM = 2;
 
 export const CURVE_PRESETS = {
@@ -301,6 +301,98 @@ export async function fetchOpenOrders(address, assetCode, issuer) {
     });
 }
 
+export function buildPoolSetupTransaction({ sourceAccount, assetCode, issuer, xlmAmount, tokenAmount }) {
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const lpAsset = new StellarSdk.LiquidityPoolAsset(StellarSdk.Asset.native(), asset, StellarSdk.LiquidityPoolFeeV18);
+  const poolId = StellarSdk.getLiquidityPoolId('constant_product', lpAsset.getLiquidityPoolParameters()).toString('hex');
+
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset: lpAsset }));
+  tx.addOperation(
+    StellarSdk.Operation.liquidityPoolDeposit({
+      liquidityPoolId: poolId,
+      maxAmountA: formatAmount(xlmAmount),
+      maxAmountB: formatAmount(tokenAmount),
+      minPrice: { n: 1, d: 100000000 },
+      maxPrice: { n: 1, d: 1000 },
+    })
+  );
+
+  return tx.setTimeout(300).build();
+}
+
+export function buildPoolBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, minTokensOut }) {
+  const buyer = sourceAccount.accountId();
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (!hasTrustline(sourceAccount, assetCode, issuer)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
+  }
+
+  tx.addOperation(
+    StellarSdk.Operation.pathPaymentStrictSend({
+      sendAsset: StellarSdk.Asset.native(),
+      sendAmount: formatAmount(xlmAmount),
+      destination: buyer,
+      destAsset: asset,
+      destMin: formatAmount(minTokensOut),
+    })
+  );
+
+  return tx.setTimeout(300).build();
+}
+
+export function buildPoolSellTransaction({ sourceAccount, assetCode, issuer, tokenAmount, minXlmOut }) {
+  const seller = sourceAccount.accountId();
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  tx.addOperation(
+    StellarSdk.Operation.pathPaymentStrictSend({
+      sendAsset: asset,
+      sendAmount: formatAmount(tokenAmount),
+      destination: seller,
+      destAsset: StellarSdk.Asset.native(),
+      destMin: formatAmount(minXlmOut),
+    })
+  );
+
+  return tx.setTimeout(300).build();
+}
+
+export async function fetchPoolPrice(assetCode, issuer) {
+  try {
+    const res = await fetch(`${HORIZON_URL}/liquidity_pools?reserves=native&reserves=${assetCode}:${issuer}&limit=1`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const records = data._embedded?.records || [];
+    if (records.length === 0) return null;
+    const pool = records[0];
+    const reserves = pool.reserves || [];
+    let xlmReserve = 0;
+    let tokenReserve = 0;
+    for (const r of reserves) {
+      if (r.asset === 'native') xlmReserve = parseFloat(r.amount);
+      else tokenReserve = parseFloat(r.amount);
+    }
+    if (tokenReserve === 0) return null;
+    return { price: xlmReserve / tokenReserve, xlmReserve, tokenReserve, poolId: pool.id };
+  } catch {
+    return null;
+  }
+}
+
 export async function signAndSubmit(transaction) {
   ensureKitInit();
   try {
@@ -341,13 +433,15 @@ export function generateStellarToml({ name, code, issuer, description, logoUrl, 
   return lines.join('\n');
 }
 
-export function estimateLaunchCost(liquidityPercent, rungs = CURVE_PRESETS.slow.rungs) {
-  const offerCount = liquidityPercent > 0 ? rungs : 0;
-  const operations = 4 + offerCount;
+export function estimateLaunchCost({ liquidityPercent, rungs = CURVE_PRESETS.slow.rungs, autoPool = false, hasInitialLiquidity = false }) {
+  const baseOps = 4;
+  const offerCount = autoPool ? 0 : (liquidityPercent > 0 ? rungs : 0);
+  const poolOps = autoPool || hasInitialLiquidity ? 2 : 0;
+  const operations = baseOps + offerCount + poolOps;
   const feeXlm = (operations * 100) / 1e7;
-  const reserveXlm = offerCount * RESERVE_PER_ENTRY;
+  const reserveXlm = offerCount * RESERVE_PER_ENTRY + poolOps * RESERVE_PER_ENTRY;
   const issuerReserveXlm = ISSUER_RESERVE_XLM;
-  return { feeXlm, reserveXlm, issuerReserveXlm, operations, offerCount };
+  return { feeXlm, reserveXlm, issuerReserveXlm, operations, offerCount, poolOps };
 }
 
 export async function fetchAssetStats(assetCode, issuer) {

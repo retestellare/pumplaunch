@@ -7,7 +7,7 @@ import SimpleChart from '@/components/SimpleChart';
 import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
 import BottomNav from '@/components/BottomNav';
-import { fetchAssetStats, formatOnChainTrades } from '@/lib/stellar';
+import { fetchAssetStats, formatOnChainTrades, fetchPoolPrice } from '@/lib/stellar';
 
 export default function TokenDetail() {
   const { id } = useParams();
@@ -15,10 +15,12 @@ export default function TokenDetail() {
   const [liveStats, setLiveStats] = useState(null);
   const [liveTrades, setLiveTrades] = useState([]);
   const [ordersKey, setOrdersKey] = useState(0);
+  const [poolPrice, setPoolPrice] = useState(null);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
     setToken(t);
+    setPoolPrice(null);
     setOrdersKey((k) => k + 1);
 
     if (t.issuer && t.asset_code) {
@@ -28,6 +30,14 @@ export default function TokenDetail() {
         setLiveTrades(formatOnChainTrades(stats.trades, t.asset_code, t.issuer));
       } catch {
         /* fall back to database values */
+      }
+      if (t.is_auto_pool) {
+        try {
+          const pool = await fetchPoolPrice(t.asset_code, t.issuer);
+          if (pool) setPoolPrice(pool.price);
+        } catch {
+          /* fall back to stats price */
+        }
       }
     }
   };
@@ -44,7 +54,9 @@ export default function TokenDetail() {
     );
   }
 
-  const price = liveStats && liveStats.price > 0 ? liveStats.price : token.price || 0.000001;
+  const price = poolPrice && poolPrice > 0
+    ? poolPrice
+    : liveStats && liveStats.price > 0 ? liveStats.price : token.price || 0.000001;
   const holders = liveStats ? liveStats.holders : token.holders || 1;
   const volume24h = liveStats ? liveStats.volume24h : token.volume_24h || 0;
   const marketCap = price * (token.supply || 0);

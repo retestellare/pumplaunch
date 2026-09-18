@@ -10,6 +10,8 @@ import {
   buildLaunchSetupTransaction,
   buildIssuerSetupTransaction,
   buildBondingCurveTransaction,
+  buildPoolSetupTransaction,
+  BASE_PRICE,
   submitProgrammatically,
   signAndSubmit,
   generateStellarToml,
@@ -23,6 +25,7 @@ const DISTRIBUTION_OPTIONS = [
   { value: 100, label: '100% Liquidity', desc: 'All tokens seeded to the DEX bonding curve' },
   { value: 80, label: '80 / 20', desc: 'Keep 20% in your wallet, seed 80% to the DEX' },
   { value: 50, label: '50 / 50', desc: 'Keep 50% in your wallet, seed 50% to the DEX' },
+  { value: 'auto_pool', label: '100% Auto-Pool', desc: '100% of XLM from purchases goes directly into the Stellar Liquidity Pool to automatically support liquidity.' },
 ];
 
 const CURVE_OPTIONS = Object.entries(CURVE_PRESETS).map(([key, p]) => ({
@@ -45,6 +48,8 @@ export default function LaunchToken() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', symbol: '', description: '', supply: '1000000000', customDomain: '' });
   const [liquidity, setLiquidity] = useState(100);
+  const [autoPool, setAutoPool] = useState(false);
+  const [initialLiquidity, setInitialLiquidity] = useState('');
   const [curve, setCurve] = useState('slow');
   const [step, setStep] = useState('form');
   const [loading, setLoading] = useState(false);
@@ -90,6 +95,16 @@ export default function LaunchToken() {
         toast({ title: 'Invalid domain format (e.g. mytoken.com)', variant: 'destructive' });
         return false;
       }
+    }
+    const il = parseFloat(initialLiquidity);
+    if (autoPool) {
+      if (!il || il < 10) {
+        toast({ title: 'Initial Liquidity must be at least 10 XLM for Auto-Pool', variant: 'destructive' });
+        return false;
+      }
+    } else if (initialLiquidity && (!il || il < 10)) {
+      toast({ title: 'Initial Liquidity must be at least 10 XLM', variant: 'destructive' });
+      return false;
     }
     return true;
   };
@@ -151,18 +166,44 @@ export default function LaunchToken() {
       await new Promise((r) => setTimeout(r, 5000));
 
       const userAccount = await loadAccount(wallet.address);
-      const liquidityAmount = (supply * liquidity) / 100;
-      if (liquidityAmount > 0) {
-        const curvePreset = CURVE_PRESETS[curve];
-        const bondingTx = buildBondingCurveTransaction({
-          userAccount,
+
+      if (autoPool) {
+        const xlmAmount = parseFloat(initialLiquidity);
+        const tokenAmount = xlmAmount / BASE_PRICE;
+        const poolTx = buildPoolSetupTransaction({
+          sourceAccount: userAccount,
           assetCode: sym,
-          issuerPublicKey,
-          liquidityAmount,
-          rungs: curvePreset.rungs,
-          priceStep: curvePreset.priceStep,
+          issuer: issuerPublicKey,
+          xlmAmount,
+          tokenAmount,
         });
-        await signAndSubmit(bondingTx);
+        await signAndSubmit(poolTx);
+      } else {
+        const liquidityAmount = (supply * liquidity) / 100;
+        if (liquidityAmount > 0) {
+          const curvePreset = CURVE_PRESETS[curve];
+          const bondingTx = buildBondingCurveTransaction({
+            userAccount,
+            assetCode: sym,
+            issuerPublicKey,
+            liquidityAmount,
+            rungs: curvePreset.rungs,
+            priceStep: curvePreset.priceStep,
+          });
+          await signAndSubmit(bondingTx);
+        }
+        if (initialLiquidity) {
+          const xlmAmount = parseFloat(initialLiquidity);
+          const tokenAmount = xlmAmount / BASE_PRICE;
+          const poolTx = buildPoolSetupTransaction({
+            sourceAccount: userAccount,
+            assetCode: sym,
+            issuer: issuerPublicKey,
+            xlmAmount,
+            tokenAmount,
+          });
+          await signAndSubmit(poolTx);
+        }
       }
 
       const toml = generateStellarToml({
@@ -194,6 +235,7 @@ export default function LaunchToken() {
         volume_24h: 0,
         change_24h: 0,
         is_graduated: false,
+        is_auto_pool: autoPool,
       });
 
       setTokenId(t.id);
@@ -214,7 +256,12 @@ export default function LaunchToken() {
   };
 
   const curvePreset = CURVE_PRESETS[curve];
-  const cost = estimateLaunchCost(liquidity, curvePreset.rungs);
+  const cost = estimateLaunchCost({
+    liquidityPercent: liquidity,
+    rungs: curvePreset.rungs,
+    autoPool,
+    hasInitialLiquidity: !!(initialLiquidity && parseFloat(initialLiquidity) >= 10),
+  });
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
 
   return (
@@ -298,26 +345,49 @@ export default function LaunchToken() {
           <div>
             <label className="text-xs text-white/40 mb-2 block">Supply Distribution</label>
             <div className="space-y-2">
-              {DISTRIBUTION_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setLiquidity(opt.value)}
-                  className={`w-full text-left px-4 py-3 rounded-xl border transition ${
-                    liquidity === opt.value
-                      ? 'border-[#00ff88] bg-[#00ff88]/5'
-                      : 'border-white/5 bg-[#141518]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm">{opt.label}</span>
-                    {liquidity === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
-                  </div>
-                  <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
-                </button>
-              ))}
+              {DISTRIBUTION_OPTIONS.map((opt) => {
+                const selected = opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      if (opt.value === 'auto_pool') {
+                        setAutoPool(true);
+                      } else {
+                        setAutoPool(false);
+                        setLiquidity(opt.value);
+                      }
+                    }}
+                    className={`w-full text-left px-4 py-3 rounded-xl border transition ${
+                      selected ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm">{opt.label}</span>
+                      {selected && <span className="text-[#00ff88] text-xs">✓</span>}
+                    </div>
+                    <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
+          <div>
+            <label className="text-xs text-white/40 mb-2 block">
+              Initial Liquidity (XLM){autoPool && <span className="text-[#00ff88]"> · required</span>}
+            </label>
+            <input
+              type="number"
+              value={initialLiquidity}
+              onChange={(e) => setInitialLiquidity(e.target.value)}
+              placeholder={autoPool ? 'Min 10 XLM' : 'Optional (min 10 XLM)'}
+              className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
+            />
+            <p className="text-[10px] text-white/30 mt-1">Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.</p>
+          </div>
+
+          {!autoPool && (
           <div>
             <label className="text-xs text-white/40 mb-2 block">Price Curve</label>
             <div className="space-y-2">
@@ -346,6 +416,7 @@ export default function LaunchToken() {
               </div>
             )}
           </div>
+          )}
 
           <button
             onClick={review}
@@ -364,10 +435,21 @@ export default function LaunchToken() {
               <Row label="Issuer" value="Auto-generated · Locked" />
               <Row label="Home Domain" value={effectiveDomain} />
               <Row label="Total Supply" value={parseFloat(form.supply).toLocaleString()} />
-              <Row label="Liquidity" value={`${liquidity}%`} />
-              <Row label="Keep" value={`${100 - liquidity}%`} />
-              <Row label="Price Curve" value={curvePreset.label} />
-              <Row label="Bonding Rungs" value={`${curvePreset.rungs} rungs · ${curvePreset.priceStep}× step`} />
+              {autoPool ? (
+                <>
+                  <Row label="Mode" value="100% Auto-Pool" />
+                  <Row label="Initial Liquidity" value={`${initialLiquidity} XLM`} />
+                  <Row label="Market" value="Stellar Liquidity Pool" />
+                </>
+              ) : (
+                <>
+                  <Row label="Liquidity" value={`${liquidity}%`} />
+                  <Row label="Keep" value={`${100 - liquidity}%`} />
+                  <Row label="Price Curve" value={curvePreset.label} />
+                  <Row label="Bonding Rungs" value={`${curvePreset.rungs} rungs · ${curvePreset.priceStep}× step`} />
+                  {initialLiquidity && <Row label="Initial Liquidity" value={`${initialLiquidity} XLM → Pool`} />}
+                </>
+              )}
               {imageFile && <Row label="Logo" value="✓ Uploaded" />}
             </div>
             <div className="border-t border-white/5 pt-3 space-y-1.5">
@@ -385,8 +467,14 @@ export default function LaunchToken() {
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-white/40">Bonding Rungs</span>
-                <span className="text-white/80">{cost.offerCount} sell offers</span>
+                <span className="text-white/80">{autoPool ? '— (pool mode)' : `${cost.offerCount} sell offers`}</span>
               </div>
+              {(autoPool || initialLiquidity) && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-white/40">Pool Setup</span>
+                  <span className="text-white/80">{cost.poolOps} ops</span>
+                </div>
+              )}
             </div>
           </div>
 
