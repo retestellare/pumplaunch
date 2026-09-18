@@ -248,8 +248,8 @@ export async function fetchAssetStats(assetCode, issuer) {
 
   const [holdersRes, tradesAsBaseRes, tradesAsCounterRes, orderBookRes] = await Promise.all([
     fetch(`${HORIZON_URL}/accounts?asset=${assetCode}:${issuer}&limit=200`).catch(() => null),
-    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
-    fetch(`${HORIZON_URL}/trades?counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
     fetch(`${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`).catch(() => null),
   ]);
 
@@ -259,14 +259,25 @@ export async function fetchAssetStats(assetCode, issuer) {
     holders = (data._embedded?.records || []).length;
   }
 
+  const seen = new Set();
   let allTrades = [];
   if (tradesAsBaseRes?.ok) {
     const data = await tradesAsBaseRes.json();
-    allTrades = allTrades.concat(data._embedded?.records || []);
+    for (const r of data._embedded?.records || []) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        allTrades.push(r);
+      }
+    }
   }
   if (tradesAsCounterRes?.ok) {
     const data = await tradesAsCounterRes.json();
-    allTrades = allTrades.concat(data._embedded?.records || []);
+    for (const r of data._embedded?.records || []) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        allTrades.push(r);
+      }
+    }
   }
   allTrades.sort((a, b) => new Date(b.ledger_close_time) - new Date(a.ledger_close_time));
 
