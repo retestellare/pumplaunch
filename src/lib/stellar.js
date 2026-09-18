@@ -38,6 +38,12 @@ function formatPrice(n) {
   return Number(n).toFixed(10);
 }
 
+function bytesToHex(bytes) {
+  return Array.prototype.map
+    .call(bytes, (b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 export async function loadAccount(address) {
   try {
     return await server.loadAccount(address);
@@ -304,7 +310,7 @@ export async function fetchOpenOrders(address, assetCode, issuer) {
 export function buildPoolSetupTransaction({ sourceAccount, assetCode, issuer, xlmAmount, tokenAmount }) {
   const asset = new StellarSdk.Asset(assetCode, issuer);
   const lpAsset = new StellarSdk.LiquidityPoolAsset(StellarSdk.Asset.native(), asset, StellarSdk.LiquidityPoolFeeV18);
-  const poolId = StellarSdk.getLiquidityPoolId('constant_product', lpAsset.getLiquidityPoolParameters()).toString('hex');
+  const poolId = bytesToHex(StellarSdk.getLiquidityPoolId('constant_product', lpAsset.getLiquidityPoolParameters()));
 
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
@@ -391,6 +397,56 @@ export async function fetchPoolPrice(assetCode, issuer) {
   } catch {
     return null;
   }
+}
+
+export function keypairFromSecret(secret) {
+  return StellarSdk.Keypair.fromSecret(secret);
+}
+
+export async function verifyLaunchProgress({ walletAddress, issuerPublicKey, assetCode, isAutoPool }) {
+  const result = { issuerExists: false, trustlineExists: false, tokensIssued: false, liquidityExists: false };
+  if (!issuerPublicKey) return result;
+
+  try {
+    const issuer = await loadAccount(issuerPublicKey);
+    result.issuerExists = !!issuer;
+  } catch {
+    /* ignore */
+  }
+  if (!result.issuerExists) return result;
+
+  try {
+    const user = await loadAccount(walletAddress);
+    if (user) {
+      const tl = (user.balances || []).find(
+        (b) => b.asset_code === assetCode && b.asset_issuer === issuerPublicKey
+      );
+      result.trustlineExists = !!tl;
+      if (tl && parseFloat(tl.balance) > 0) result.tokensIssued = true;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (!result.tokensIssued) return result;
+
+  try {
+    if (isAutoPool) {
+      const pool = await fetchPoolPrice(assetCode, issuerPublicKey);
+      result.liquidityExists = !!pool;
+    } else {
+      const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+      const obRes = await fetch(
+        `${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuerPublicKey}&buying_asset_type=native`
+      ).catch(() => null);
+      if (obRes?.ok) {
+        const ob = await obRes.json();
+        result.liquidityExists = (ob.bids?.length || 0) > 0 || (ob.asks?.length || 0) > 0;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return result;
 }
 
 export async function signAndSubmit(transaction) {
