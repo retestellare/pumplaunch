@@ -499,9 +499,19 @@ function parseTomlCurrency(toml, code) {
   return null;
 }
 
+async function fetchWithTimeout(url, timeout = 8000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 export async function fetchTokenMetadata(assetCode, issuer) {
   try {
-    const accountRes = await fetch(`${HORIZON_URL}/accounts/${issuer}`);
+    const accountRes = await fetchWithTimeout(`${HORIZON_URL}/accounts/${issuer}`);
     if (!accountRes.ok) return null;
     const accountData = await accountRes.json();
     const homeDomain = accountData.home_domain;
@@ -515,7 +525,7 @@ export async function fetchTokenMetadata(assetCode, issuer) {
     let logo = null;
     let name = null;
     try {
-      const tomlRes = await fetch(tomlUrl);
+      const tomlRes = await fetchWithTimeout(tomlUrl, 5000);
       if (tomlRes.ok) {
         const toml = await tomlRes.text();
         const parsed = parseTomlCurrency(toml, assetCode);

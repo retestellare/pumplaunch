@@ -47,6 +47,10 @@ export default function Portfolio() {
       return;
     }
     let active = true;
+
+    const initial = balances.assets.map((a) => ({ ...a, symbol: a.code }));
+    if (active) setEnrichedAssets(initial);
+
     (async () => {
       let tokenMap = {};
       try {
@@ -58,29 +62,38 @@ export default function Portfolio() {
         /* ignore */
       }
 
-      const enriched = await Promise.all(
-        balances.assets.map(async (a) => {
-          const appToken = tokenMap[a.issuer];
-          if (appToken) {
-            return {
-              ...a,
-              image_url: appToken.image_url,
-              name: appToken.name,
-              domain: appToken.custom_domain || appToken.home_domain,
-              symbol: appToken.symbol,
-            };
-          }
+      for (let i = 0; i < balances.assets.length; i++) {
+        if (!active) return;
+        const a = balances.assets[i];
+        let enriched = { ...a, symbol: a.code };
+
+        const appToken = tokenMap[a.issuer];
+        if (appToken) {
+          enriched = {
+            ...a,
+            image_url: appToken.image_url,
+            name: appToken.name,
+            domain: appToken.custom_domain || appToken.home_domain,
+            symbol: appToken.symbol,
+          };
+        } else {
           const meta = await fetchTokenMetadata(a.code, a.issuer);
-          return {
+          enriched = {
             ...a,
             image_url: meta?.logo || null,
             name: meta?.name || a.code,
             domain: meta?.homeDomain || null,
             symbol: a.code,
           };
-        })
-      );
-      if (active) setEnrichedAssets(enriched);
+        }
+
+        if (!active) return;
+        setEnrichedAssets((prev) => {
+          const next = [...prev];
+          next[i] = enriched;
+          return next;
+        });
+      }
     })();
     return () => {
       active = false;
