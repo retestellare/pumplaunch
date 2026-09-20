@@ -39,9 +39,7 @@ export default function CreatePost({ onDone }) {
       }
       await base44.entities.Post.create({
         content,
-        author: wallet?.address
-          ? `${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}`
-          : 'Anonymous',
+        author: wallet?.address || 'Anonymous',
         image_url: imageUrl,
         token_symbol: tokenSymbol,
         position_size: parseFloat(position) || 0,

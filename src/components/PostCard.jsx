@@ -1,8 +1,13 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
+import { useWallet } from '@/lib/wallet';
 import { Heart, MessageCircle } from 'lucide-react';
+import Avatar from '@/components/Avatar';
+import { shortAddr, displayName } from '@/lib/profiles';
 
-export default function PostCard({ post, onChange }) {
+export default function PostCard({ post, onChange, profileMap = {} }) {
+  const { wallet } = useWallet();
   const [liked, setLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
@@ -27,7 +32,7 @@ export default function PostCard({ post, onChange }) {
 
   const submitComment = async () => {
     if (!commentText.trim()) return;
-    await base44.entities.Comment.create({ post_id: post.id, author: 'You', content: commentText });
+    await base44.entities.Comment.create({ post_id: post.id, author: wallet?.address || 'Anonymous', content: commentText });
     await base44.entities.Post.update(post.id, { comments_count: (post.comments_count || 0) + 1 });
     setCommentText('');
     loadComments();
@@ -39,7 +44,23 @@ export default function PostCard({ post, onChange }) {
   return (
     <div className="bg-[#141518] rounded-2xl p-4 mb-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-white/40 font-medium">{post.author}</span>
+        {(() => {
+          const profile = profileMap[post.author];
+          const isFullAddr = post.author && post.author.length > 20;
+          const content = (
+            <>
+              <Avatar profile={profile} address={post.author} size={24} />
+              <span className="text-xs text-white/70 font-medium">{displayName(profile, post.author)}</span>
+            </>
+          );
+          return isFullAddr ? (
+            <Link to={`/profile/${post.author}`} className="flex items-center gap-2">
+              {content}
+            </Link>
+          ) : (
+            <div className="flex items-center gap-2">{content}</div>
+          );
+        })()}
         {post.token_symbol && (
           <span className="text-xs px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold">
             ${post.token_symbol}
@@ -82,7 +103,7 @@ export default function PostCard({ post, onChange }) {
         <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
           {comments.map((c) => (
             <div key={c.id} className="text-sm">
-              <span className="text-white/50 text-xs mr-2">{c.author}</span>
+              <span className="text-white/50 text-xs mr-2">{shortAddr(c.author)}</span>
               {c.content}
             </div>
           ))}

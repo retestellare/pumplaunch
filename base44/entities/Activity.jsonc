@@ -1,0 +1,40 @@
+{
+  "name": "Activity",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "launch",
+        "pool_seed",
+        "order_placed",
+        "order_cancelled"
+      ]
+    },
+    "token_symbol": {
+      "type": "string"
+    },
+    "token_id": {
+      "type": "string"
+    },
+    "amount_xlm": {
+      "type": "number"
+    },
+    "tokens": {
+      "type": "number"
+    },
+    "price": {
+      "type": "number"
+    },
+    "details": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "wallet_address",
+    "type"
+  ]
+}

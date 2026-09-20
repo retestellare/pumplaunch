@@ -339,6 +339,18 @@ export default function LaunchToken() {
         saveLaunchAttempt(attempt);
       }
 
+      try {
+        await base44.entities.Activity.create({
+          wallet_address: wallet.address,
+          type: 'launch',
+          token_symbol: sym,
+          token_id: t.id,
+          details: `Launched $${sym}`,
+        });
+      } catch {
+        /* ignore */
+      }
+
       // Done — clear saved state
       clearLaunchAttempt();
       setResumeAttempt(null);

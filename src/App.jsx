@@ -13,6 +13,7 @@ import Portfolio from '@/pages/Portfolio';
 import Social from '@/pages/Social';
 import LaunchToken from '@/pages/LaunchToken';
 import Guide from '@/pages/Guide';
+import Profile from '@/pages/Profile';
 
 function App() {
 
@@ -30,6 +31,7 @@ function App() {
               <Route path="/social" element={<Social />} />
               <Route path="/launch" element={<LaunchToken />} />
               <Route path="/guide" element={<Guide />} />
+              <Route path="/profile/:walletAddress" element={<Profile />} />
               <Route path="*" element={<PageNotFound />} />
             </Routes>
           </WalletProvider>

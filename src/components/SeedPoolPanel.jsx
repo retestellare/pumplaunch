@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -58,6 +59,19 @@ export default function SeedPoolPanel({ token, onSeeded }) {
       });
       await signAndSubmit(tx);
       toast({ title: 'Liquidity pool seeded!' });
+      try {
+        await base44.entities.Activity.create({
+          wallet_address: wallet.address,
+          type: 'pool_seed',
+          token_symbol: token.symbol,
+          token_id: token.id,
+          amount_xlm: xlm,
+          tokens: tokenAmount,
+          details: `Seeded liquidity pool for $${token.symbol} with ${xlm} XLM`,
+        });
+      } catch {
+        /* ignore */
+      }
       setXlmAmount('');
       onSeeded?.();
     } catch (e) {

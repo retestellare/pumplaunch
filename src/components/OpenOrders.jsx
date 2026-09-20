@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -52,6 +53,18 @@ export default function OpenOrders({ token, refreshKey }) {
       });
       await signAndSubmit(tx);
       toast({ title: 'Order cancelled' });
+      try {
+        await base44.entities.Activity.create({
+          wallet_address: wallet.address,
+          type: 'order_cancelled',
+          token_symbol: token.symbol,
+          token_id: token.id,
+          price: order.price,
+          details: `Cancelled ${order.side} order for $${token.symbol}`,
+        });
+      } catch {
+        /* ignore */
+      }
       await load();
     } catch (e) {
       toast({ title: 'Cancel failed', description: e.message || String(e), variant: 'destructive' });

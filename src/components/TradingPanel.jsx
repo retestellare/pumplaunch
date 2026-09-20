@@ -193,6 +193,21 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
           price: token.price,
           user_address: wallet.address,
         });
+      } else {
+        try {
+          await base44.entities.Activity.create({
+            wallet_address: wallet.address,
+            type: 'order_placed',
+            token_symbol: token.symbol,
+            token_id: token.id,
+            amount_xlm: side === 'buy' ? confirm.amount : 0,
+            tokens: side === 'sell' ? confirm.amount : 0,
+            price: triggerPrice,
+            details: `Limit ${side} order for $${token.symbol} @ ${triggerPrice.toFixed(8)} XLM`,
+          });
+        } catch {
+          /* ignore */
+        }
       }
       toast({ title: mode === 'limit' ? 'Limit order placed!' : `${side === 'buy' ? 'Bought' : 'Sold'} on mainnet!` });
       setConfirm(null);
