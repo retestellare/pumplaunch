@@ -4,6 +4,9 @@ import PageLayout from '@/components/PageLayout';
 import TokenCard from '@/components/TokenCard';
 import WalletButton from '@/components/WalletButton';
 import { fetchAssetStats } from '@/lib/stellar';
+import { useWallet } from '@/lib/wallet';
+import NewHoldersToday from '@/components/NewHoldersToday';
+import Leaderboard from '@/components/Leaderboard';
 
 const TABS = [
   { key: 'hot', label: '🔥 Hot' },
@@ -12,7 +15,9 @@ const TABS = [
 ];
 
 export default function Home() {
+  const { wallet } = useWallet();
   const [tab, setTab] = useState('hot');
+  const [allTokens, setAllTokens] = useState([]);
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,11 +26,8 @@ export default function Home() {
     (async () => {
       setLoading(true);
       let list = await base44.entities.Token.list('-created_date', 100);
-      if (tab === 'hot') list = [...list].sort((a, b) => (b.volume_24h || 0) - (a.volume_24h || 0));
-      else if (tab === 'holders') list = [...list].sort((a, b) => (b.holders || 0) - (a.holders || 0));
-      else list = [...list].sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
       if (!active) return;
-      setTokens(list);
+      setAllTokens(list);
       setLoading(false);
 
       // Enrich with live on-chain data (first 20 tokens)
@@ -34,7 +36,7 @@ export default function Home() {
         try {
           const stats = await fetchAssetStats(t.asset_code, t.issuer);
           if (!active) return;
-          setTokens((prev) =>
+          setAllTokens((prev) =>
             prev.map((p) =>
               p.id === t.id
                 ? {
@@ -55,7 +57,21 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [tab]);
+  }, []);
+
+  useEffect(() => {
+    let list = [...allTokens];
+    if (tab === 'hot') list = list.sort((a, b) => (b.volume_24h || 0) - (a.volume_24h || 0));
+    else if (tab === 'holders') list = list.sort((a, b) => (b.holders || 0) - (a.holders || 0));
+    else {
+      const now = new Date();
+      const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      list = list
+        .filter((t) => new Date(t.created_date).getTime() >= startOfDay)
+        .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+    }
+    setTokens(list);
+  }, [tab, allTokens]);
 
   return (
     <PageLayout title="Stellar Pump" rightAction={<WalletButton />}>
@@ -83,6 +99,12 @@ export default function Home() {
           {tokens.map((t, i) => (
             <TokenCard key={t.id} token={t} rank={i + 1} />
           ))}
+        </div>
+      )}
+      {!loading && allTokens.length > 0 && (
+        <div className="px-3 pt-4 space-y-3">
+          <NewHoldersToday tokens={allTokens} />
+          <Leaderboard tokens={allTokens} walletAddress={wallet?.address} />
         </div>
       )}
     </PageLayout>

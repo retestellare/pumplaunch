@@ -8,6 +8,7 @@ import ScrollToTop from './components/ScrollToTop';
 import { WalletProvider } from '@/lib/wallet';
 import Home from '@/pages/Home';
 import TokenDetail from '@/pages/TokenDetail';
+import TokenHolders from '@/pages/TokenHolders';
 import Portfolio from '@/pages/Portfolio';
 import Social from '@/pages/Social';
 import LaunchToken from '@/pages/LaunchToken';
@@ -23,6 +24,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/token/:id" element={<TokenDetail />} />
+              <Route path="/token/:id/holders" element={<TokenHolders />} />
               <Route path="/portfolio" element={<Portfolio />} />
               <Route path="/social" element={<Social />} />
               <Route path="/launch" element={<LaunchToken />} />

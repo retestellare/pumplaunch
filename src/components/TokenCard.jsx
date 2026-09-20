@@ -1,9 +1,11 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Users } from 'lucide-react';
 import TokenIcon from './TokenIcon';
 
 export default function TokenCard({ token, rank }) {
   const change = token.change_24h ?? 0;
   const positive = change >= 0;
+  const navigate = useNavigate();
   return (
     <Link
       to={`/token/${token.id}`}
@@ -17,6 +19,16 @@ export default function TokenCard({ token, rank }) {
           {token.is_graduated && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00ff88]/10 text-[#00ff88] font-bold">GRAD</span>
           )}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              navigate(`/token/${token.id}/holders`);
+            }}
+            className="ml-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/50 hover:text-[#00ff88] transition"
+          >
+            <Users size={10} /> {token.holders ?? '—'}
+          </button>
         </div>
         <div className="text-xs text-white/40 truncate">{token.name}</div>
       </div>
