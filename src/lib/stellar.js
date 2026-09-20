@@ -3,7 +3,7 @@ import { StellarWalletsKit, ensureKitInit } from './walletKit';
 
 const HORIZON_URL = 'https://horizon.stellar.org';
 export const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
-export const HOME_DOMAIN = 'stellarlaunch.base44.app';
+export const HOME_DOMAIN = 'pumplaunch.app';
 export const BASE_FEE = StellarSdk.BASE_FEE || '100';
 const RESERVE_PER_ENTRY = 0.5;
 

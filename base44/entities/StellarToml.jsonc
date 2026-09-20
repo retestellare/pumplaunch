@@ -1,0 +1,12 @@
+{
+  "name": "StellarToml",
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "content"
+  ]
+}
