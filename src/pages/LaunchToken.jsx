@@ -124,10 +124,12 @@ export default function LaunchToken() {
       toast({ title: 'Symbol must be 4-12 alphanumeric characters', variant: 'destructive' });
       return false;
     }
-    const supply = parseFloat(form.supply);
-    if (!supply || supply <= 0) {
-      toast({ title: 'Enter a valid supply', variant: 'destructive' });
-      return false;
+    if (!autoPool) {
+      const supply = parseFloat(form.supply);
+      if (!supply || supply <= 0) {
+        toast({ title: 'Enter a valid supply', variant: 'destructive' });
+        return false;
+      }
     }
     if (form.customDomain) {
       const cleaned = cleanDomain(form.customDomain);
@@ -158,7 +160,9 @@ export default function LaunchToken() {
     setLoading(true);
     try {
       const sym = attempt.form.symbol.toUpperCase();
-      const supply = parseFloat(attempt.form.supply);
+      const supply = attempt.autoPool
+        ? parseFloat(attempt.initialLiquidity) / BASE_PRICE
+        : parseFloat(attempt.form.supply);
       const customDomain = attempt.form.customDomain ? cleanDomain(attempt.form.customDomain) : '';
       const homeDomain = customDomain || HOME_DOMAIN;
 
@@ -247,7 +251,7 @@ export default function LaunchToken() {
 
         if (attempt.autoPool) {
           const xlmAmount = parseFloat(attempt.initialLiquidity);
-          const tokenAmount = xlmAmount / BASE_PRICE;
+          const tokenAmount = supply;
           const poolTx = buildPoolSetupTransaction({
             sourceAccount: userAccount,
             assetCode: sym,
@@ -397,6 +401,7 @@ export default function LaunchToken() {
   };
 
   const curvePreset = CURVE_PRESETS[curve];
+  const derivedSupply = parseFloat(initialLiquidity) > 0 ? parseFloat(initialLiquidity) / BASE_PRICE : 0;
   const cost = estimateLaunchCost({
     liquidityPercent: liquidity,
     rungs: curvePreset.rungs,
@@ -476,15 +481,25 @@ export default function LaunchToken() {
                 className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 resize-none"
               />
             </div>
-            <div>
-              <label className="text-xs text-white/40 mb-1.5 block">Total Supply</label>
-              <input
-                type="number"
-                value={form.supply}
-                onChange={(e) => setForm({ ...form, supply: e.target.value })}
-                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
-              />
-            </div>
+            {autoPool ? (
+              <div>
+                <label className="text-xs text-white/40 mb-1.5 block">Total Supply (auto)</label>
+                <div className="w-full bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl px-3 py-3 font-mono text-sm text-[#00ff88]">
+                  {derivedSupply > 0 ? Math.floor(derivedSupply).toLocaleString() : '—'}
+                </div>
+                <p className="text-[10px] text-white/30 mt-1">Determined by your initial liquidity. More XLM = more tokens, all go to the pool.</p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs text-white/40 mb-1.5 block">Total Supply</label>
+                <input
+                  type="number"
+                  value={form.supply}
+                  onChange={(e) => setForm({ ...form, supply: e.target.value })}
+                  className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
+                />
+              </div>
+            )}
 
             <div>
               <label className="text-xs text-white/40 mb-1.5 block">Token Logo (optional, max 2MB)</label>
@@ -632,7 +647,7 @@ export default function LaunchToken() {
               <Row label="Asset" value={form.symbol.toUpperCase()} />
               <Row label="Issuer" value="Auto-generated · Locked" />
               <Row label="Home Domain" value={effectiveDomain} />
-              <Row label="Total Supply" value={parseFloat(form.supply).toLocaleString()} />
+              <Row label="Total Supply" value={(autoPool ? Math.floor(derivedSupply) : parseFloat(form.supply)).toLocaleString()} />
               {autoPool ? (
                 <>
                   <Row label="Mode" value="100% Auto-Pool" />
