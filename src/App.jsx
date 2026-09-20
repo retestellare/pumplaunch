@@ -12,6 +12,7 @@ import TokenHolders from '@/pages/TokenHolders';
 import Portfolio from '@/pages/Portfolio';
 import Social from '@/pages/Social';
 import LaunchToken from '@/pages/LaunchToken';
+import Guide from '@/pages/Guide';
 
 function App() {
 
@@ -28,6 +29,7 @@ function App() {
               <Route path="/portfolio" element={<Portfolio />} />
               <Route path="/social" element={<Social />} />
               <Route path="/launch" element={<LaunchToken />} />
+              <Route path="/guide" element={<Guide />} />
               <Route path="*" element={<PageNotFound />} />
             </Routes>
           </WalletProvider>

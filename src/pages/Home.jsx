@@ -5,6 +5,8 @@ import TokenCard from '@/components/TokenCard';
 import WalletButton from '@/components/WalletButton';
 import { fetchAssetStats } from '@/lib/stellar';
 import { useWallet } from '@/lib/wallet';
+import { Link } from 'react-router-dom';
+import { HelpCircle } from 'lucide-react';
 import NewHoldersToday from '@/components/NewHoldersToday';
 import Leaderboard from '@/components/Leaderboard';
 
@@ -74,7 +76,17 @@ export default function Home() {
   }, [tab, allTokens]);
 
   return (
-    <PageLayout title="Stellar Pump" rightAction={<WalletButton />}>
+    <PageLayout
+      title="Stellar Pump"
+      rightAction={
+        <div className="flex items-center gap-2">
+          <Link to="/guide" className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
+            <HelpCircle size={18} className="text-white/70" />
+          </Link>
+          <WalletButton />
+        </div>
+      }
+    >
       <div className="flex gap-1 p-3 sticky top-14 z-20 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5">
         {TABS.map((t) => (
           <button
