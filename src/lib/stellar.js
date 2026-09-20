@@ -572,18 +572,30 @@ export async function fetchAssetStats(assetCode, issuer) {
   }
 
   // Build price history from trades (oldest → newest)
+  const tradePrice = (t) => {
+    const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
+    return isTokenBase
+      ? parseFloat(t.price.n) / parseFloat(t.price.d)
+      : parseFloat(t.price.d) / parseFloat(t.price.n);
+  };
   const priceHistory = allTrades
     .slice()
     .reverse()
-    .map((t) => {
-      const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
-      return isTokenBase
-        ? parseFloat(t.price.n) / parseFloat(t.price.d)
-        : parseFloat(t.price.d) / parseFloat(t.price.n);
-    })
+    .map(tradePrice)
     .filter((p) => p > 0);
 
-  return { holders, trades: allTrades, price, volume24h, priceHistory };
+  // 24h change: latest trade price vs price ~24h ago (oldest trade as fallback)
+  let change24h = 0;
+  if (allTrades.length > 0) {
+    const currentPrice = tradePrice(allTrades[0]);
+    const baselineTrade = allTrades.find((t) => new Date(t.ledger_close_time).getTime() <= oneDayAgo);
+    const baselinePrice = baselineTrade ? tradePrice(baselineTrade) : tradePrice(allTrades[allTrades.length - 1]);
+    if (baselinePrice > 0) {
+      change24h = ((currentPrice - baselinePrice) / baselinePrice) * 100;
+    }
+  }
+
+  return { holders, trades: allTrades, price, volume24h, priceHistory, change24h };
 }
 
 export function formatOnChainTrades(trades, assetCode, issuer, maxCount = 20) {

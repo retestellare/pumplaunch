@@ -47,6 +47,7 @@ export default function Home() {
                     volume_24h: stats.volume24h || p.volume_24h || 0,
                     price: stats.price > 0 ? stats.price : p.price,
                     market_cap: stats.price > 0 ? stats.price * (p.supply || 0) : p.market_cap,
+                    change_24h: stats.change24h != null ? stats.change24h : p.change_24h ?? 0,
                   }
                 : p
             )
