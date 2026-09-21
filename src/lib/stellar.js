@@ -399,6 +399,32 @@ export async function fetchPoolPrice(assetCode, issuer) {
   }
 }
 
+export async function fetchOrderBook(assetCode, issuer) {
+  try {
+    const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+    const res = await fetch(
+      `${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`
+    );
+    if (!res.ok) return null;
+    const ob = await res.json();
+    const bids = ob.bids || [];
+    const asks = ob.asks || [];
+    const bestBid = bids.length > 0 ? parseFloat(bids[0].price) : 0;
+    const bestAsk = asks.length > 0 ? parseFloat(asks[0].price) : 0;
+    return {
+      bestBid,
+      bestAsk,
+      spread: bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0,
+      bidAmount: bids.length > 0 ? parseFloat(bids[0].amount) : 0,
+      askAmount: asks.length > 0 ? parseFloat(asks[0].amount) : 0,
+      bidCount: bids.length,
+      askCount: asks.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function keypairFromSecret(secret) {
   return StellarSdk.Keypair.fromSecret(secret);
 }
