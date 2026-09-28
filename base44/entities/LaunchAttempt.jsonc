@@ -1,0 +1,65 @@
+{
+  "name": "LaunchAttempt",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "supply": {
+      "type": "number"
+    },
+    "custom_domain": {
+      "type": "string"
+    },
+    "liquidity": {
+      "type": "number"
+    },
+    "auto_pool": {
+      "type": "boolean"
+    },
+    "initial_liquidity": {
+      "type": "number"
+    },
+    "curve": {
+      "type": "string"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "token_id": {
+      "type": "string"
+    },
+    "issuer_public_key": {
+      "type": "string"
+    },
+    "reused_asset": {
+      "type": "boolean"
+    },
+    "step": {
+      "type": "string"
+    },
+    "step_label": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "error_code": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "wallet_address",
+    "symbol",
+    "step"
+  ]
+}

@@ -21,13 +21,85 @@ const server = new StellarSdk.Horizon.Server(HORIZON_URL);
 
 export { server, StellarSdk };
 
-function extractError(e) {
-  const extras = e?.response?.data?.extras;
-  if (extras?.result_codes) {
-    const rc = extras.result_codes;
-    return rc.transaction || (rc.operations && rc.operations.join(', ')) || 'Transaction failed';
+const ERROR_MAP = {
+  tx_bad_seq: 'The transaction used a stale sequence number. Retrying with a fresh one.',
+  tx_bad_auth: 'The wallet signature was rejected or invalid.',
+  tx_insufficient_fee: 'The network fee was too low. Retrying.',
+  tx_no_account: 'Your wallet account was not found on the network.',
+  tx_failed: 'One or more operations in the transaction failed.',
+  op_underfunded: 'Not enough XLM balance to cover this operation.',
+  op_low_reserve: 'Not enough free XLM to hold the new ledger entry — add XLM to cover the reserve.',
+  op_under_dest_min: 'The trade would return less than the minimum amount — slippage too high.',
+  op_no_trust: 'Your wallet has no trustline for this token.',
+  op_not_authorized: 'The issuer has not authorized this operation.',
+  op_malformed: 'The operation parameters were invalid.',
+  op_too_few_offers: 'No matching offers found in the order book.',
+  op_cross_self: 'Cannot trade with yourself.',
+  op_already_exists: 'This ledger entry already exists.',
+  transient_network: 'Network error talking to Stellar. Retrying.',
+};
+
+export class StellarError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'StellarError';
+    this.stellarCode = code;
   }
-  return e?.message || String(e);
+}
+
+export function explainError(e) {
+  const extras = e?.response?.data?.extras;
+  const rc = extras?.result_codes;
+  let code = null;
+  if (rc) {
+    const ops = rc.operations || [];
+    if (rc.transaction && rc.transaction !== 'tx_success' && rc.transaction !== 'tx_failed') {
+      code = rc.transaction;
+    } else if (ops.length) {
+      code = ops.find((o) => o && o !== 'op_success') || ops[0];
+    } else if (rc.transaction) {
+      code = rc.transaction;
+    }
+  }
+  if (!code) {
+    const status = e?.response?.status;
+    const msg = (e?.message || '').toLowerCase();
+    if ((status && status >= 500) || /timeout|aborted|network|fetch failed|econnreset/i.test(msg)) {
+      code = 'transient_network';
+    }
+  }
+  const message = (code && ERROR_MAP[code]) || e?.message || String(e);
+  return { message, code };
+}
+
+export function isTransientError(e) {
+  const code = e?.stellarCode;
+  if (code) return ['tx_bad_seq', 'tx_insufficient_fee', 'transient_network'].includes(code);
+  const msg = (e?.message || '').toLowerCase();
+  return /timeout|aborted|network|fetch failed|stale sequence|econnreset/i.test(msg);
+}
+
+export async function submitWithRetry(buildTx, submitFn, { onRetry, verify, maxAttempts = 4, delayMs = 4000 } = {}) {
+  for (let i = 1; i <= maxAttempts; i++) {
+    if (verify) {
+      try {
+        if (await verify()) return null;
+      } catch {
+        /* ignore verify errors, proceed to submit */
+      }
+    }
+    const tx = await buildTx();
+    try {
+      return await submitFn(tx);
+    } catch (e) {
+      if (i < maxAttempts && isTransientError(e)) {
+        onRetry?.(i, maxAttempts);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 function formatAmount(n) {
@@ -85,8 +157,8 @@ export function hasTrustline(account, assetCode, issuer) {
   );
 }
 
-export function buildLaunchSetupTransaction({ sourceAccount, assetCode, homeDomain }) {
-  const issuerKeypair = StellarSdk.Keypair.random();
+export function buildLaunchSetupTransaction({ sourceAccount, assetCode, homeDomain, issuerKeypair: providedKeypair }) {
+  const issuerKeypair = providedKeypair || StellarSdk.Keypair.random();
   const issuerPublicKey = issuerKeypair.publicKey();
   const asset = new StellarSdk.Asset(assetCode, issuerPublicKey);
 
@@ -487,7 +559,8 @@ export async function signAndSubmit(transaction) {
     const result = await server.submitTransaction(signedTx, { skipMemoRequiredCheck: true });
     return result;
   } catch (e) {
-    throw new Error(extractError(e));
+    const ex = explainError(e);
+    throw new StellarError(ex.message, ex.code);
   }
 }
 
@@ -497,7 +570,8 @@ export async function submitProgrammatically(transaction, keypair) {
     const result = await server.submitTransaction(transaction, { skipMemoRequiredCheck: true });
     return result;
   } catch (e) {
-    throw new Error(extractError(e));
+    const ex = explainError(e);
+    throw new StellarError(ex.message, ex.code);
   }
 }
 

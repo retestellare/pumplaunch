@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +19,7 @@ import {
   BASE_PRICE,
   submitProgrammatically,
   signAndSubmit,
+  submitWithRetry,
   generateStellarToml,
   estimateLaunchCost,
   CURVE_PRESETS,
@@ -27,13 +28,15 @@ import {
   pollForTransaction,
   findExistingTrustline,
   fetchTokenMetadata,
+  fetchOrderBook,
+  fetchPoolPrice,
 } from '@/lib/stellar';
 import {
-  saveLaunchAttempt,
-  getCurrentLaunchAttempt,
-  clearLaunchAttempt,
-  listLaunchAttempts,
-} from '@/lib/launchState';
+  loadAttempt,
+  saveAttempt,
+  clearAttempt,
+  getIssuerSecret,
+} from '@/lib/launchAttempts';
 import { ImagePlus } from 'lucide-react';
 
 const DISTRIBUTION_OPTIONS = [
@@ -51,10 +54,16 @@ const CURVE_OPTIONS = Object.entries(CURVE_PRESETS).map(([key, p]) => ({
   step: p.priceStep,
 }));
 
+const STEP_LABELS = STEPS.reduce((acc, s) => ({ ...acc, [s.id]: s.label }), { start: 'Start' });
+
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 
 function cleanDomain(d) {
   return d.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
+}
+
+function stepLabel(id) {
+  return STEP_LABELS[id] || id || 'unknown step';
 }
 
 function analyzeStall(attempt, availableXlm) {
@@ -62,19 +71,17 @@ function analyzeStall(attempt, availableXlm) {
   const cost = estimateLaunchCost({
     liquidityPercent: attempt.liquidity,
     rungs: curvePreset.rungs,
-    autoPool: attempt.autoPool,
-    hasInitialLiquidity: !!(attempt.initialLiquidity && parseFloat(attempt.initialLiquidity) >= 10),
+    autoPool: attempt.auto_pool,
+    hasInitialLiquidity: !!(attempt.initial_liquidity && parseFloat(attempt.initial_liquidity) >= 10),
   });
-  const poolDeposit = attempt.autoPool
-    ? parseFloat(attempt.initialLiquidity) || 0
-    : attempt.initialLiquidity
-    ? parseFloat(attempt.initialLiquidity) || 0
+  const poolDeposit = attempt.auto_pool || attempt.initial_liquidity
+    ? parseFloat(attempt.initial_liquidity) || 0
     : 0;
-  const issuerReserve = attempt.issuerPublicKey ? 0 : cost.issuerReserveXlm;
+  const issuerReserve = attempt.issuer_public_key ? 0 : cost.issuerReserveXlm;
   const required = issuerReserve + poolDeposit + cost.feeXlm + cost.reserveXlm;
   const insufficient = availableXlm != null && availableXlm < required;
   let reason = attempt.error;
-  if (!reason) reason = insufficient ? 'Insufficient XLM to finish the launch.' : 'Launch was interrupted.';
+  if (!reason) reason = insufficient ? 'Insufficient XLM to finish the launch.' : 'Launch was interrupted. Resume to continue from where it stopped.';
   return { required, insufficient, reason };
 }
 
@@ -89,6 +96,7 @@ export default function LaunchToken() {
   const [curve, setCurve] = useState('slow');
   const [step, setStep] = useState('form');
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [tomlText, setTomlText] = useState('');
@@ -97,13 +105,26 @@ export default function LaunchToken() {
   const [attempt, setAttempt] = useState(null);
   const [stepStatuses, setStepStatuses] = useState({});
   const [waiting, setWaiting] = useState(false);
+  const [stalledAttempt, setStalledAttempt] = useState(null);
+  const [stallLoading, setStallLoading] = useState(true);
+  const [attemptRefreshKey, setAttemptRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!wallet?.address) {
       setAvailableXlm(null);
+      setStalledAttempt(null);
+      setStallLoading(false);
       return;
     }
     let active = true;
+    setStallLoading(true);
+    (async () => {
+      const a = await loadAttempt(wallet.address);
+      if (active) {
+        setStalledAttempt(a && a.step !== 'done' ? a : null);
+        setStallLoading(false);
+      }
+    })();
     (async () => {
       try {
         const account = await loadAccount(wallet.address);
@@ -116,7 +137,7 @@ export default function LaunchToken() {
     return () => {
       active = false;
     };
-  }, [wallet?.address]);
+  }, [wallet?.address, attemptRefreshKey]);
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -132,6 +153,10 @@ export default function LaunchToken() {
   const validate = () => {
     if (!wallet) {
       toast({ title: 'Connect your wallet first', variant: 'destructive' });
+      return false;
+    }
+    if (stalledAttempt) {
+      toast({ title: 'Resolve the unfinished launch first', description: 'Resume or discard the interrupted launch above before starting a new one.', variant: 'destructive' });
       return false;
     }
     if (!form.name.trim() || !form.symbol.trim()) {
@@ -177,93 +202,122 @@ export default function LaunchToken() {
 
   const setStepStatus = (id, status) => setStepStatuses((prev) => ({ ...prev, [id]: status }));
 
-  const runLaunch = async (store) => {
-    store = { ...store, error: null };
+  const failStep = async (store, stepId, e) => {
+    setStepStatus(stepId, 'failed');
+    const updated = { ...store, step: stepId, error: e?.message || String(e), error_code: e?.stellarCode || '' };
+    setAttempt(updated);
+    await saveAttempt(updated);
+    setAttemptRefreshKey((k) => k + 1);
+  };
+
+  const runLaunch = async (incoming) => {
+    const store = { ...incoming, error: null, error_code: '' };
     setStep('progress');
     setAttempt({ ...store });
     setStepStatuses({});
     setWaiting(false);
+    setRetrying(false);
     setLoading(true);
 
-    const sym = store.symbol.toUpperCase();
-    const customDomain = store.customDomain ? cleanDomain(store.customDomain) : '';
+    const sym = (store.symbol || '').toUpperCase();
+    const customDomain = store.custom_domain ? cleanDomain(store.custom_domain) : (store.customDomain ? cleanDomain(store.customDomain) : '');
     const homeDomain = customDomain || HOME_DOMAIN;
     store.symbol = sym;
+    store.custom_domain = customDomain;
 
     const setStage = (stepId, label) => {
       store.step = stepId;
-      store.stepLabel = label;
+      store.step_label = label;
       setAttempt({ ...store });
-      saveLaunchAttempt(store);
+      saveAttempt(store);
     };
 
     try {
-      if (!store.imageUrl && imageFile) {
+      if (!wallet?.address) throw new Error('Wallet not connected.');
+
+      if (!store.image_url && imageFile) {
         setStage('issuer', 'Uploading logo…');
         const uploadResult = await base44.integrations.Core.UploadPublicFile({ file: imageFile });
-        store.imageUrl = uploadResult.file_url;
-        saveLaunchAttempt(store);
+        store.image_url = uploadResult.file_url;
+        saveAttempt(store);
       }
 
       const account = await loadAccount(wallet.address);
       if (!account) {
-        toast({ title: 'Account not found', description: 'Fund your wallet with XLM on Stellar mainnet first.', variant: 'destructive' });
-        setLoading(false);
-        return;
+        throw new Error('Your wallet account was not found. Fund it with XLM on Stellar mainnet first.');
       }
 
-      // Reuse an existing on-chain trustline for this symbol (no duplicate issuer)
-      if (!store.issuerPublicKey) {
+      if (!store.issuer_public_key && !store.issuerPublicKey) {
         const existingIssuer = await findExistingTrustline(wallet.address, sym);
         if (existingIssuer) {
-          store.issuerPublicKey = existingIssuer;
-          store.issuerSecret = null;
-          store.reusedAsset = true;
-          saveLaunchAttempt(store);
+          store.issuer_public_key = existingIssuer;
+          store.issuer_secret = null;
+          store.reused_asset = true;
+          saveAttempt(store);
           setAttempt({ ...store });
           toast({ title: `Existing $${sym} found`, description: 'Reusing the token you already hold — no new trustline created.' });
         }
       }
 
-      const issuerPublicKey = store.issuerPublicKey;
-      const supply = store.reusedAsset
+      const supply = store.reused_asset
         ? parseFloat(store.supply) || 0
-        : store.autoPool
-        ? parseFloat(store.initialLiquidity) / BASE_PRICE
+        : store.auto_pool
+        ? parseFloat(store.initial_liquidity) / BASE_PRICE
         : parseFloat(store.supply);
+      if (!store.reused_asset && (!supply || isNaN(supply) || supply <= 0)) {
+        throw new Error('Invalid supply. Enter a valid total supply and try again.');
+      }
       store.supply = supply;
 
       // Step 1: Create issuer account + trustline
-      setStage('issuer', store.reusedAsset ? 'Existing token — skipped' : 'Creating issuer account…');
-      if (store.reusedAsset) {
+      setStage('issuer', store.reused_asset ? 'Existing token — skipped' : 'Creating issuer account…');
+      if (store.reused_asset) {
         setStepStatus('issuer', 'done');
       } else {
-        const progress = issuerPublicKey
-          ? await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey, assetCode: sym, isAutoPool: store.autoPool })
+        const issuerPk = store.issuer_public_key || store.issuerPublicKey;
+        const p1 = issuerPk
+          ? await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: issuerPk, assetCode: sym, isAutoPool: store.auto_pool })
           : { trustlineExists: false, tokensIssued: false, liquidityExists: false };
-        if (progress.trustlineExists) {
+        if (p1.trustlineExists) {
           setStepStatus('issuer', 'done');
         } else {
           setWaiting(true);
           setStage('issuer', 'Waiting for your wallet…');
-          const { transaction: setupTx, issuerKeypair: kp, issuerPublicKey: pk } = buildLaunchSetupTransaction({
-            sourceAccount: account,
-            assetCode: sym,
-            homeDomain,
-          });
+          let issuerKp = null;
+          const buildSetupTx = async () => {
+            const acct = await loadAccount(wallet.address);
+            const res = buildLaunchSetupTransaction({
+              sourceAccount: acct,
+              assetCode: sym,
+              homeDomain,
+              issuerKeypair: issuerKp,
+            });
+            issuerKp = res.issuerKeypair;
+            store.issuer_public_key = issuerKp.publicKey();
+            store.issuer_secret = issuerKp.secret();
+            return res.transaction;
+          };
           try {
-            await signAndSubmit(setupTx);
-            store.issuerSecret = kp.secret();
-            store.issuerPublicKey = pk;
-            saveLaunchAttempt(store);
+            await submitWithRetry(buildSetupTx, signAndSubmit, {
+              onRetry: (i, max) => {
+                setRetrying(true);
+                setStage('issuer', `Retrying (${i}/${max})…`);
+              },
+              verify: async () => {
+                if (!store.issuer_public_key) return false;
+                const p = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool });
+                return p.trustlineExists;
+              },
+            });
+            saveAttempt(store);
             setAttempt({ ...store });
-            await pollForAccount(pk);
+            await pollForAccount(store.issuer_public_key);
           } catch (e) {
-            setStepStatus('issuer', 'failed');
-            setAttempt((a) => ({ ...a, error: e.message }));
+            await failStep(store, 'issuer', e);
             throw e;
           } finally {
             setWaiting(false);
+            setRetrying(false);
           }
           setStage('issuer', 'Issuer account created');
           setStepStatus('issuer', 'done');
@@ -271,34 +325,53 @@ export default function LaunchToken() {
       }
 
       // Step 2: Issue tokens
-      setStage('issue', store.reusedAsset ? 'Existing token — skipped' : 'Issuing tokens…');
-      if (store.reusedAsset) {
+      setStage('issue', store.reused_asset ? 'Existing token — skipped' : 'Issuing tokens…');
+      if (store.reused_asset) {
         setStepStatus('issue', 'done');
       } else {
-        const p2 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey, assetCode: sym, isAutoPool: store.autoPool });
+        const p2 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool });
         if (p2.tokensIssued) {
           setStepStatus('issue', 'done');
         } else {
-          if (!store.issuerSecret) throw new Error('Issuer key unavailable — resume to retry issuing.');
-          const issuerKeypair = keypairFromSecret(store.issuerSecret);
-          const issuerAccount = await loadAccount(issuerPublicKey);
-          if (!issuerAccount) throw new Error('Issuer account not found after creation');
-          const issueTx = buildIssuerSetupTransaction({
-            issuerAccount,
-            userAddress: wallet.address,
-            assetCode: sym,
-            totalSupply: supply,
-            homeDomain,
-          });
-          try {
-            const result = await submitProgrammatically(issueTx, issuerKeypair);
-            await pollForTransaction(result);
-          } catch (e) {
-            setStepStatus('issue', 'failed');
-            setAttempt((a) => ({ ...a, error: e.message }));
-            throw e;
+          const issuerSecret = store.issuer_secret || getIssuerSecret(wallet.address, sym);
+          if (!issuerSecret) {
+            const err = new Error("The issuer was created on another device and its key isn't available here. Return to that device to finish, or discard (the 2 XLM reserve is lost).");
+            await failStep(store, 'issue', err);
+            throw err;
           }
-          saveLaunchAttempt(store);
+          const issuerKeypair = keypairFromSecret(issuerSecret);
+          const buildIssueTx = async () => {
+            const issuerAccount = await loadAccount(store.issuer_public_key);
+            if (!issuerAccount) throw new Error('Issuer account not found after creation');
+            return buildIssuerSetupTransaction({
+              issuerAccount,
+              userAddress: wallet.address,
+              assetCode: sym,
+              totalSupply: supply,
+              homeDomain,
+            });
+          };
+          setWaiting(true);
+          try {
+            const result = await submitWithRetry(buildIssueTx, (tx) => submitProgrammatically(tx, issuerKeypair), {
+              onRetry: (i, max) => {
+                setRetrying(true);
+                setStage('issue', `Retrying (${i}/${max})…`);
+              },
+              verify: async () => {
+                const p = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool });
+                return p.tokensIssued;
+              },
+            });
+            if (result) await pollForTransaction(result);
+          } catch (e) {
+            await failStep(store, 'issue', e);
+            throw e;
+          } finally {
+            setWaiting(false);
+            setRetrying(false);
+          }
+          saveAttempt(store);
           setAttempt({ ...store });
           setStage('issue', 'Tokens issued');
           setStepStatus('issue', 'done');
@@ -306,46 +379,66 @@ export default function LaunchToken() {
       }
 
       // Step 3: Seed liquidity
-      setStage('liquidity', store.reusedAsset ? 'Existing token — skipped' : 'Seeding liquidity…');
-      if (store.reusedAsset) {
+      setStage('liquidity', store.reused_asset ? 'Existing token — skipped' : 'Seeding liquidity…');
+      if (store.reused_asset) {
         setStepStatus('liquidity', 'done');
       } else {
-        const p3 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey, assetCode: sym, isAutoPool: store.autoPool });
+        const p3 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool });
         if (!p3.liquidityExists) {
-          const userAccount = await loadAccount(wallet.address);
           setWaiting(true);
           try {
-            if (store.autoPool) {
-              const xlmAmount = parseFloat(store.initialLiquidity);
-              const poolTx = buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: issuerPublicKey, xlmAmount, tokenAmount: supply });
-              await signAndSubmit(poolTx);
+            if (store.auto_pool) {
+              const xlmAmount = parseFloat(store.initial_liquidity);
+              const buildPoolTx = async () => {
+                const userAccount = await loadAccount(wallet.address);
+                return buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: store.issuer_public_key, xlmAmount, tokenAmount: supply });
+              };
+              await submitWithRetry(buildPoolTx, signAndSubmit, {
+                onRetry: (i, max) => { setRetrying(true); setStage('liquidity', `Retrying (${i}/${max})…`); },
+                verify: async () => !!(await fetchPoolPrice(sym, store.issuer_public_key)),
+              });
             } else {
               const liquidityAmount = (supply * store.liquidity) / 100;
               if (liquidityAmount > 0) {
-                const curvePreset = CURVE_PRESETS[store.curve];
-                const bondingTx = buildBondingCurveTransaction({
-                  userAccount,
-                  assetCode: sym,
-                  issuerPublicKey,
-                  liquidityAmount,
-                  rungs: curvePreset.rungs,
-                  priceStep: curvePreset.priceStep,
+                const curvePreset = CURVE_PRESETS[store.curve] || CURVE_PRESETS.slow;
+                const buildBondingTx = async () => {
+                  const userAccount = await loadAccount(wallet.address);
+                  return buildBondingCurveTransaction({
+                    userAccount,
+                    assetCode: sym,
+                    issuerPublicKey: store.issuer_public_key,
+                    liquidityAmount,
+                    rungs: curvePreset.rungs,
+                    priceStep: curvePreset.priceStep,
+                  });
+                };
+                await submitWithRetry(buildBondingTx, signAndSubmit, {
+                  onRetry: (i, max) => { setRetrying(true); setStage('liquidity', `Retrying (${i}/${max})…`); },
+                  verify: async () => {
+                    const ob = await fetchOrderBook(sym, store.issuer_public_key);
+                    return !!(ob && (ob.askCount > 0 || ob.bidCount > 0));
+                  },
                 });
-                await signAndSubmit(bondingTx);
               }
-              if (store.initialLiquidity) {
-                const xlmAmount = parseFloat(store.initialLiquidity);
+              if (store.initial_liquidity) {
+                const xlmAmount = parseFloat(store.initial_liquidity);
                 const tokenAmount = xlmAmount / BASE_PRICE;
-                const poolTx = buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: issuerPublicKey, xlmAmount, tokenAmount });
-                await signAndSubmit(poolTx);
+                const buildPoolTx = async () => {
+                  const userAccount = await loadAccount(wallet.address);
+                  return buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: store.issuer_public_key, xlmAmount, tokenAmount });
+                };
+                await submitWithRetry(buildPoolTx, signAndSubmit, {
+                  onRetry: (i, max) => { setRetrying(true); setStage('liquidity', `Retrying (${i}/${max})…`); },
+                  verify: async () => !!(await fetchPoolPrice(sym, store.issuer_public_key)),
+                });
               }
             }
           } catch (e) {
-            setStepStatus('liquidity', 'failed');
-            setAttempt((a) => ({ ...a, error: e.message }));
+            await failStep(store, 'liquidity', e);
             throw e;
           } finally {
             setWaiting(false);
+            setRetrying(false);
           }
         }
         setStage('liquidity', 'Liquidity seeded');
@@ -354,39 +447,39 @@ export default function LaunchToken() {
 
       // Step 4: List in app
       setStage('list', 'Listing in app…');
-      if (store.reusedAsset && (!store.imageUrl || store.name === store.symbol)) {
+      if (store.reused_asset && (!store.image_url || store.name === store.symbol)) {
         try {
-          const meta = await fetchTokenMetadata(sym, issuerPublicKey);
+          const meta = await fetchTokenMetadata(sym, store.issuer_public_key);
           if (meta) {
-            if (meta.logo && !store.imageUrl) store.imageUrl = meta.logo;
+            if (meta.logo && !store.image_url) store.image_url = meta.logo;
             if (meta.name) store.name = meta.name;
-            saveLaunchAttempt(store);
+            saveAttempt(store);
             setAttempt({ ...store });
           }
         } catch {
           /* metadata optional */
         }
       }
-      if (!store.tokenId) {
-        const existing = await base44.entities.Token.filter({ issuer: issuerPublicKey, asset_code: sym });
+      if (!store.token_id) {
+        const existing = await base44.entities.Token.filter({ issuer: store.issuer_public_key, asset_code: sym });
         if (existing && existing.length > 0) {
-          store.tokenId = existing[0].id;
+          store.token_id = existing[0].id;
         } else {
           const toml = generateStellarToml({
             name: store.name,
             code: sym,
-            issuer: issuerPublicKey,
+            issuer: store.issuer_public_key,
             description: store.description,
-            logoUrl: store.imageUrl,
+            logoUrl: store.image_url,
             orgUrl: customDomain ? `https://${customDomain}` : `https://${HOME_DOMAIN}`,
           });
           const record = {
             name: store.name,
             symbol: sym,
             description: store.description,
-            image_url: store.imageUrl,
+            image_url: store.image_url,
             creator: wallet.address,
-            issuer: issuerPublicKey,
+            issuer: store.issuer_public_key,
             asset_code: sym,
             home_domain: homeDomain,
             custom_domain: customDomain || null,
@@ -400,7 +493,7 @@ export default function LaunchToken() {
             volume_24h: 0,
             change_24h: 0,
             is_graduated: true,
-            is_auto_pool: store.autoPool,
+            is_auto_pool: store.auto_pool,
           };
           let created;
           try {
@@ -409,9 +502,9 @@ export default function LaunchToken() {
             await new Promise((r) => setTimeout(r, 1500));
             created = await base44.entities.Token.create(record);
           }
-          store.tokenId = created.id;
-          store.tomlText = toml;
-          saveLaunchAttempt(store);
+          store.token_id = created.id;
+          store.toml_text = toml;
+          saveAttempt(store);
           setAttempt({ ...store });
         }
       }
@@ -423,83 +516,89 @@ export default function LaunchToken() {
           wallet_address: wallet.address,
           type: 'launch',
           token_symbol: sym,
-          token_id: store.tokenId,
-          details: store.reusedAsset ? `Listed $${sym}` : `Launched $${sym}`,
+          token_id: store.token_id,
+          details: store.reused_asset ? `Listed $${sym}` : `Launched $${sym}`,
         });
       } catch {
         /* ignore */
       }
 
-      clearLaunchAttempt(sym);
-      setTokenId(store.tokenId);
+      await clearAttempt(wallet.address, sym);
+      setAttemptRefreshKey((k) => k + 1);
+      setTokenId(store.token_id);
 
       if (customDomain) {
-        setTomlText(store.tomlText);
+        setTomlText(store.toml_text);
         setStep('toml');
-        toast({ title: store.reusedAsset ? `$${sym} listed!` : `$${sym} launched!`, description: 'Upload your toml next.' });
+        toast({ title: store.reused_asset ? `$${sym} listed!` : `$${sym} launched!`, description: 'Upload your toml next.' });
       } else {
-        toast({ title: store.reusedAsset ? `$${sym} listed in the app!` : `$${sym} launched on mainnet!` });
-        navigate(`/token/${store.tokenId}`);
+        toast({ title: store.reused_asset ? `$${sym} listed in the app!` : `$${sym} launched on mainnet!` });
+        navigate(`/token/${store.token_id}`);
       }
     } catch (e) {
+      const reason = e?.message || String(e);
       toast({
         title: 'Launch step failed',
-        description: `${e.message || String(e)}. Your progress is saved — resume safely when ready.`,
+        description: `${reason}${e?.stellarCode ? ` (${e.stellarCode})` : ''}. Your progress is saved — resume safely when ready.`,
         variant: 'destructive',
       });
     } finally {
       setLoading(false);
       setWaiting(false);
+      setRetrying(false);
     }
   };
 
   const handleNewLaunch = () => {
     const sym = form.symbol.toUpperCase();
-    const existing = getCurrentLaunchAttempt(wallet.address, sym);
-    if (existing) {
-      runLaunch(existing);
-      return;
-    }
     const store = {
-      walletAddress: wallet.address,
+      wallet_address: wallet.address,
       name: form.name.trim(),
       symbol: sym,
       description: form.description.trim(),
       supply: form.supply,
-      customDomain: form.customDomain,
+      custom_domain: form.customDomain,
       liquidity,
-      autoPool,
-      initialLiquidity,
+      auto_pool: autoPool,
+      initial_liquidity: initialLiquidity,
       curve,
-      imageUrl: null,
-      tomlText: null,
-      tokenId: null,
+      image_url: null,
+      token_id: null,
+      issuer_public_key: null,
+      issuer_secret: null,
+      reused_asset: false,
       step: 'start',
+      step_label: '',
       error: null,
+      error_code: '',
     };
     runLaunch(store);
   };
 
   const handleResume = () => {
     if (!stalledAttempt) return;
-    runLaunch(stalledAttempt);
+    const secret = getIssuerSecret(wallet.address, stalledAttempt.symbol);
+    runLaunch({ ...stalledAttempt, issuer_secret: secret || null });
   };
 
   const handleRetry = () => {
     if (!attempt) return;
-    runLaunch(attempt);
+    const secret = attempt.issuer_secret || getIssuerSecret(wallet.address, attempt.symbol);
+    runLaunch({ ...attempt, issuer_secret: secret || null });
   };
 
   const handleAbort = () => {
     setLoading(false);
     setWaiting(false);
+    setRetrying(false);
     setStep('form');
   };
 
-  const handleDiscard = () => {
-    if (stalledAttempt) clearLaunchAttempt(stalledAttempt.symbol);
-    setAttempt(null);
-    setStep('form');
+  const handleDiscard = async () => {
+    if (!stalledAttempt) return;
+    await clearAttempt(wallet.address, stalledAttempt.symbol);
+    setStalledAttempt(null);
+    setAttemptRefreshKey((k) => k + 1);
     toast({ title: 'Incomplete launch discarded', description: 'The 2 XLM issuer reserve cannot be recovered.' });
   };
 
@@ -519,34 +618,34 @@ export default function LaunchToken() {
     : 0;
   const requiredXlm = cost.issuerReserveXlm + poolDeposit + cost.feeXlm + cost.reserveXlm;
   const balanceOk = availableXlm === null || availableXlm >= requiredXlm;
-
-  const stalledAttempt = useMemo(() => {
-    if (!wallet?.address) return null;
-    const attempts = listLaunchAttempts().filter(
-      (a) => a && a.walletAddress === wallet.address && a.step !== 'done'
-    );
-    return attempts[0] || null;
-  }, [wallet?.address, step]);
-
+  const blocked = !!stalledAttempt && !stallLoading;
   const stallAnalysis = stalledAttempt ? analyzeStall(stalledAttempt, availableXlm) : null;
   const progressAnalysis = attempt ? analyzeStall(attempt, availableXlm) : null;
+  const showResume = attempt && (stepStatuses[attempt.step] === 'failed' || !!attempt.error);
 
   return (
     <PageLayout title="Launch Token" rightAction={<WalletButton />}>
       {step === 'form' ? (
         <div className="p-4 space-y-4">
           <LaunchGuide />
-          {stalledAttempt && stallAnalysis && (
+          {stallLoading ? (
+            <div className="text-center text-white/40 text-sm py-4">Checking for unfinished launches…</div>
+          ) : stalledAttempt && stallAnalysis ? (
             <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/30 rounded-2xl p-4 space-y-3">
               <div>
                 <p className="text-sm font-bold text-[#ff3b5c]">Incomplete ${stalledAttempt.symbol} launch — stopped</p>
                 <p className="text-xs text-white/70 mt-1">{stallAnalysis.reason}</p>
+                {stalledAttempt.error_code && (
+                  <p className="text-[10px] text-white/30 mt-0.5">Code: {stalledAttempt.error_code}</p>
+                )}
                 {availableXlm != null && (
                   <p className="text-xs text-white/40 mt-1">
                     Required to finish: ~{stallAnalysis.required.toFixed(2)} XLM · Available: {availableXlm.toFixed(2)} XLM
                   </p>
                 )}
-                <p className="text-xs text-white/40 mt-1">Last step: {stalledAttempt.step}. Resume reuses the same issuer — no new trustline or 2 XLM reserve.</p>
+                <p className="text-xs text-white/40 mt-1">
+                  Stopped at: {stepLabel(stalledAttempt.step)}. Resume reuses the same issuer — no new trustline or 2 XLM reserve.
+                </p>
               </div>
               <div className="flex gap-2">
                 <button onClick={handleResume} className="flex-1 py-2.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm">
@@ -557,6 +656,12 @@ export default function LaunchToken() {
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {blocked && (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+              <p className="text-xs text-white/50">You have an unfinished launch above. Resume or discard it before starting a new one.</p>
+            </div>
           )}
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
@@ -566,7 +671,8 @@ export default function LaunchToken() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="e.g. Doge Rocket"
-                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
+                disabled={blocked}
+                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
               />
             </div>
             <div>
@@ -577,7 +683,8 @@ export default function LaunchToken() {
                   setForm({ ...form, symbol: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) })
                 }
                 placeholder="e.g. DOGERKT"
-                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 font-mono"
+                disabled={blocked}
+                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 font-mono disabled:opacity-40"
               />
             </div>
             <div>
@@ -587,7 +694,8 @@ export default function LaunchToken() {
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="Describe your memecoin…"
                 rows={3}
-                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 resize-none"
+                disabled={blocked}
+                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 resize-none disabled:opacity-40"
               />
             </div>
             {autoPool ? (
@@ -605,7 +713,8 @@ export default function LaunchToken() {
                   type="number"
                   value={form.supply}
                   onChange={(e) => setForm({ ...form, supply: e.target.value })}
-                  className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
+                  disabled={blocked}
+                  className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
                 />
               </div>
             )}
@@ -621,8 +730,8 @@ export default function LaunchToken() {
                   </div>
                 )}
                 <label className="flex-1 cursor-pointer">
-                  <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
-                  <div className="px-3 py-3 bg-black/30 border border-white/5 rounded-xl text-sm text-white/60 text-center hover:bg-white/5 transition">
+                  <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" disabled={blocked} />
+                  <div className="px-3 py-3 bg-black/30 border border-white/5 rounded-xl text-sm text-white/60 text-center hover:bg-white/5 transition disabled:opacity-40">
                     {imageFile ? 'Change image' : 'Upload logo'}
                   </div>
                 </label>
@@ -635,7 +744,8 @@ export default function LaunchToken() {
                 value={form.customDomain}
                 onChange={(e) => setForm({ ...form, customDomain: e.target.value })}
                 placeholder="e.g. mytoken.com"
-                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
+                disabled={blocked}
+                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
               />
               <p className="text-[10px] text-white/30 mt-1">
                 Leave empty to host the stellar.toml here. If provided, home_domain is set to your domain and you'll get the toml to upload.
@@ -659,7 +769,8 @@ export default function LaunchToken() {
                         setLiquidity(opt.value);
                       }
                     }}
-                    className={`w-full text-left px-4 py-3 rounded-xl border transition ${
+                    disabled={blocked}
+                    className={`w-full text-left px-4 py-3 rounded-xl border transition disabled:opacity-40 ${
                       selected ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
                     }`}
                   >
@@ -683,7 +794,8 @@ export default function LaunchToken() {
               value={initialLiquidity}
               onChange={(e) => setInitialLiquidity(e.target.value)}
               placeholder={autoPool ? 'Min 10 XLM' : 'Optional (min 10 XLM)'}
-              className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
+              disabled={blocked}
+              className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
             />
             <p className="text-[10px] text-white/30 mt-1">Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.</p>
           </div>
@@ -696,7 +808,8 @@ export default function LaunchToken() {
                   <button
                     key={opt.value}
                     onClick={() => setCurve(opt.value)}
-                    className={`w-full text-left px-4 py-3 rounded-xl border transition ${
+                    disabled={blocked}
+                    className={`w-full text-left px-4 py-3 rounded-xl border transition disabled:opacity-40 ${
                       curve === opt.value ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
                     }`}
                   >
@@ -717,7 +830,7 @@ export default function LaunchToken() {
             </div>
           )}
 
-          {wallet && availableXlm !== null && !balanceOk && (
+          {wallet && availableXlm !== null && !balanceOk && !blocked && (
             <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl p-3 space-y-1.5">
               <p className="text-xs text-[#ff3b5c] font-bold">Insufficient XLM balance</p>
               <div className="flex justify-between text-xs">
@@ -736,10 +849,12 @@ export default function LaunchToken() {
 
           <button
             onClick={review}
-            disabled={!wallet || (wallet && availableXlm !== null && !balanceOk)}
+            disabled={!wallet || blocked || (wallet && availableXlm !== null && !balanceOk)}
             className="w-full py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
           >
-            {!wallet
+            {blocked
+              ? 'Resolve launch above'
+              : !wallet
               ? 'Connect Wallet First'
               : wallet && availableXlm !== null && !balanceOk
               ? 'Insufficient XLM'
@@ -834,16 +949,23 @@ export default function LaunchToken() {
         <div className="p-4 space-y-3">
           <LaunchStepTracker steps={STEPS} currentStep={attempt.step} statuses={stepStatuses} />
 
-          {waiting && (
+          {waiting && !retrying && (
             <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3 flex items-center gap-3">
               <div className="w-4 h-4 border-2 border-[#00ff88] border-t-transparent rounded-full animate-spin shrink-0" />
               <p className="text-sm text-white/80">Waiting for your wallet… Approve the transaction in your wallet app to continue.</p>
             </div>
           )}
 
+          {retrying && (
+            <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3 flex items-center gap-3">
+              <div className="w-4 h-4 border-2 border-[#00ff88] border-t-transparent rounded-full animate-spin shrink-0" />
+              <p className="text-sm text-white/80">Retrying — re-reading the network and trying again…</p>
+            </div>
+          )}
+
           <div className="bg-[#141518] rounded-2xl p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-bold">{attempt.stepLabel || 'Working…'}</span>
+              <span className="text-sm font-bold">{attempt.step_label || 'Working…'}</span>
               {stepStatuses[attempt.step] === 'failed' ? (
                 <span className="text-xs text-[#ff3b5c] font-bold">Failed</span>
               ) : stepStatuses[attempt.step] === 'done' ? (
@@ -853,22 +975,23 @@ export default function LaunchToken() {
               )}
             </div>
             {attempt.error && <p className="text-xs text-[#ff3b5c]">{attempt.error}</p>}
-            {stepStatuses[attempt.step] === 'failed' && progressAnalysis && availableXlm != null && (
+            {attempt.error_code && <p className="text-[10px] text-white/30">Code: {attempt.error_code}</p>}
+            {showResume && progressAnalysis && availableXlm != null && (
               <p className="text-xs text-white/40">Required ~{progressAnalysis.required.toFixed(2)} XLM · Available {availableXlm.toFixed(2)} XLM</p>
             )}
           </div>
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-2 text-sm">
             <Row label="Asset" value={`$${attempt.symbol}`} />
-            <Row label="Mode" value={attempt.autoPool ? '100% Auto-Pool' : `Bonding Curve · ${attempt.liquidity}%`} />
+            <Row label="Mode" value={attempt.auto_pool ? '100% Auto-Pool' : `Bonding Curve · ${attempt.liquidity}%`} />
             <Row label="Supply" value={Math.floor(parseFloat(attempt.supply) || 0).toLocaleString()} />
-            {attempt.issuerPublicKey && (
-              <Row label="Issuer" value={`${attempt.issuerPublicKey.slice(0, 8)}…${attempt.issuerPublicKey.slice(-4)}`} />
+            {attempt.issuer_public_key && (
+              <Row label="Issuer" value={`${attempt.issuer_public_key.slice(0, 8)}…${attempt.issuer_public_key.slice(-4)}`} />
             )}
           </div>
 
           <div className="flex gap-2">
-            {stepStatuses[attempt.step] === 'failed' ? (
+            {showResume ? (
               <button
                 onClick={handleRetry}
                 disabled={loading}
