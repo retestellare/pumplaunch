@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/use-toast';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
+import LaunchGuide from '@/components/LaunchGuide';
 import {
   loadAccount,
   parseBalances,
@@ -534,6 +535,7 @@ export default function LaunchToken() {
     <PageLayout title="Launch Token" rightAction={<WalletButton />}>
       {step === 'form' ? (
         <div className="p-4 space-y-4">
+          <LaunchGuide />
           {stalledAttempt && stallAnalysis && (
             <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/30 rounded-2xl p-4 space-y-3">
               <div>
