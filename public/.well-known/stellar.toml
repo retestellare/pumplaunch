@@ -1,34 +1,57 @@
-# stellar.toml
+# stellar.toml — Stellar Pump token registry
+# https://stellarlaunch.base44.app/.well-known/stellar.toml
+
 [DOCUMENTATION]
 ORG_NAME="Stellar Pump"
 ORG_URL="https://stellarlaunch.base44.app"
-ORG_DESCRIPTION="Memecoin launchpad on the Stellar network. Launch, trade, and discover tokens on Stellar."
-ORG_KEYWORDS="stellar, memecoin, launchpad, crypto, xlm"
+ORG_DESCRIPTION="Stellar Pump — a real-world Stellar Lumens memecoin launchpad and trading platform. Launch, trade, and track meme tokens on the Stellar mainnet."
+ORG_KEYWORDS="stellar, memecoin, launchpad, xlm, dex"
 
 [[CURRENCIES]]
-code = "XTAI"
-issuer = "GAJ2EGSM77SUWTSSXTE5D6L4SMZOFIFRVK7DDP3OXASEWARRMA53O5CY"
-name = "TerminatorAI"
-desc = "Terminator AI is the meme token designed to conquer the blockchain with laughter and artificial intelligence. Unstoppable futuristic cyborg meets friendly web mascot."
-image = "https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/7be40e90f_29942.png"
+code="AMNESIA"
+issuer="GDO2UN56UFF3MEBVJQPPFE36U3GCTKH4SHCSKXJRRO525LNTD3J5MUQG"
+name="Amnesia"
+desc="Amnesia Token ($AMNESIA) is the ultimate meme coin for those who live the crypto world with complete ease and zero short-term memory."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/d716895c0_31146.png"
 
 [[CURRENCIES]]
-code = "LAUNCH"
-issuer = "GDG43QK5I2YDIOTMZDG2CHYGN2QY4NZXCXTNZLIKKMY4VJOV5MXMLBWG"
-name = "Launch token"
-desc = "It's not just a rocket; it's a force of nature, carrying our Shiba Inu astronaut toward intergalactic greatness."
-image = "https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/63b30ef58_29739.png"
+code="NOSS"
+issuer="GBU37IFOGZSUHIKL2EPHAFOFGJFK4TS56A3YPR2E6AIPWQVADHOX6MKP"
+name="Noosss"
+desc="More NOS than sense of proportion. Welcome to the fast lane. NOOOOSS!!!"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/69ea7ee39_31023.png"
 
 [[CURRENCIES]]
-code = "SBULL"
-issuer = "GB33BZYBJUAKKITLCBMP5GPSSQ4LFZXGSXYIVOLHXAMK5RMYEIOXQD6X"
-name = "Stellar bull"
-desc = "Stellar Bull is the galactic memecoin designed to propel your portfolio straight to the moon, combining the bull market power with the infinite possibilities of the cosmos."
-image = "https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/009aef56c_29623.png"
+code="SETH"
+issuer="GC5EVHC4TUIVWOHYZPDTQUMIPOLVYLIFQ25YY6NW2YXT2Q4FAQDIS4MI"
+name="Black sun"
+desc="Black Sun (BS) is the new, fiery meme token launched on the Stellar (XLM) network. With its aggressive design and cosmic energy, it combines the near-instantaneous speed and low fees of the Stellar ecosystem with the irreverent nature of memecoin culture."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/15b2e263e_30622.png"
 
 [[CURRENCIES]]
-code = "ROKETS"
-issuer = "GBUPZWBBUTFDICDX5KRBPBOC3ISWCEQ6NVHFOV2MY6JQGNQJYVQRGJMA"
-name = "Roket"
-desc = "Rocket meme launch"
-image = "https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/803b1f1bf_29525.png"
+code="XTAI"
+issuer="GAJ2EGSM77SUWTSSXTE5D6L4SMZOFIFRVK7DDP3OXASEWARRMA53O5CY"
+name="TerminatorAI"
+desc="Terminator AI ($TAI) is the meme token designed to conquer the blockchain with laughter and artificial intelligence."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/7be40e90f_29942.png"
+
+[[CURRENCIES]]
+code="LAUNCH"
+issuer="GDG43QK5I2YDIOTMZDG2CHYGN2QY4NZXCXTNZLIKKMY4VJOV5MXMLBWG"
+name="Launch token"
+desc="It's not just a rocket; it's a force of nature, carrying our intrepid Shiba Inu astronaut with it. Its sole goal: intergalactic greatness!"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/63b30ef58_29739.png"
+
+[[CURRENCIES]]
+code="SBULL"
+issuer="GB33BZYBJUAKKITLCBMP5GPSSQ4LFZXGSXYIVOLHXAMK5RMYEIOXQD6X"
+name="Stellar bull"
+desc="Stellar Bull ($SB) is the galactic memecoin designed to propel your portfolio straight to the moon."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/009aef56c_29623.png"
+
+[[CURRENCIES]]
+code="ROKETS"
+issuer="GBUPZWBBUTFDICDX5KRBPBOC3ISWCEQ6NVHFOV2MY6JQGNQJYVQRGJMA"
+name="Roket"
+desc="Rocket meme launch"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/803b1f1bf_29525.png"
