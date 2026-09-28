@@ -483,12 +483,20 @@ export async function fetchOrderBook(assetCode, issuer) {
     const asks = ob.asks || [];
     const bestBid = bids.length > 0 ? parseFloat(bids[0].price) : 0;
     const bestAsk = asks.length > 0 ? parseFloat(asks[0].price) : 0;
+    const bidAmount = bids.length > 0 ? parseFloat(bids[0].amount) : 0;
+    const askAmount = asks.length > 0 ? parseFloat(asks[0].amount) : 0;
+    const bidDepth = bids.reduce((s, b) => s + parseFloat(b.amount), 0);
+    const askDepth = asks.reduce((s, a) => s + parseFloat(a.amount), 0);
+    const askFloor = asks.length > 0 ? parseFloat(asks[asks.length - 1].price) : 0;
     return {
       bestBid,
       bestAsk,
       spread: bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0,
-      bidAmount: bids.length > 0 ? parseFloat(bids[0].amount) : 0,
-      askAmount: asks.length > 0 ? parseFloat(asks[0].amount) : 0,
+      bidAmount,
+      askAmount,
+      bidDepth,
+      askDepth,
+      askFloor,
       bidCount: bids.length,
       askCount: asks.length,
     };

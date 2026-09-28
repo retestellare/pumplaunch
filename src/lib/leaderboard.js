@@ -23,14 +23,13 @@ export async function fetchTokenTrades(assetCode, issuer) {
   return trades;
 }
 
-// Mark-to-market gain per wallet across all listed tokens.
-// gain % = (holdings × current price + XLM received from sells − XLM spent on buys) / XLM spent on buys × 100
+// Realized cash-flow PnL per wallet: XLM received from sells − XLM spent on buys.
+// No mark-to-market on holdings (liquidity is thin), so gain% reflects realized trades only.
 export async function fetchLeaderboard(tokens) {
   const wallets = {};
-
   const ensure = (addr) => {
     if (!addr) return null;
-    if (!wallets[addr]) wallets[addr] = { address: addr, cost: 0, realized: 0, holdings: [] };
+    if (!wallets[addr]) wallets[addr] = { address: addr, spent: 0, received: 0 };
     return wallets[addr];
   };
 
@@ -42,54 +41,30 @@ export async function fetchLeaderboard(tokens) {
     } catch {
       continue;
     }
-    const price = t.price || 0;
-    const perWallet = {};
-
     for (const tr of trades) {
       let buyer = null;
       let seller = null;
-      let tokenAmount = 0;
       let xlmAmount = 0;
       if (tr.counter_asset_type === 'native') {
-        tokenAmount = parseFloat(tr.base_amount);
         xlmAmount = parseFloat(tr.counter_amount);
         buyer = tr.counter_account;
         seller = tr.base_account;
       } else if (tr.base_asset_type === 'native') {
-        tokenAmount = parseFloat(tr.counter_amount);
         xlmAmount = parseFloat(tr.base_amount);
         buyer = tr.base_account;
         seller = tr.counter_account;
       } else {
         continue;
       }
-      if (buyer) {
-        if (!perWallet[buyer]) perWallet[buyer] = { tokens: 0, cost: 0, realized: 0 };
-        perWallet[buyer].tokens += tokenAmount;
-        perWallet[buyer].cost += xlmAmount;
-      }
-      if (seller) {
-        if (!perWallet[seller]) perWallet[seller] = { tokens: 0, cost: 0, realized: 0 };
-        perWallet[seller].tokens -= tokenAmount;
-        perWallet[seller].realized += xlmAmount;
-      }
-    }
-
-    for (const [addr, agg] of Object.entries(perWallet)) {
-      const w = ensure(addr);
-      w.cost += agg.cost;
-      w.realized += agg.realized;
-      if (Math.abs(agg.tokens) > 1e-7 && price > 0) {
-        w.holdings.push({ tokens: agg.tokens, price });
-      }
+      if (buyer) ensure(buyer).spent += xlmAmount;
+      if (seller) ensure(seller).received += xlmAmount;
     }
   }
 
   const rows = Object.values(wallets).map((w) => {
-    const marketValue = w.holdings.reduce((s, h) => s + h.tokens * h.price, 0);
-    const gainXlm = marketValue + w.realized - w.cost;
-    const gainPct = w.cost > 0 ? (gainXlm / w.cost) * 100 : null;
-    return { address: w.address, pnl: gainXlm, gainPct, cost: w.cost };
+    const pnl = w.received - w.spent;
+    const gainPct = w.spent > 0 ? (pnl / w.spent) * 100 : null;
+    return { address: w.address, pnl, gainPct, spent: w.spent };
   });
 
   rows.sort((a, b) => {

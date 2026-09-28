@@ -63,16 +63,21 @@ export default function TokenInfoCards({ token, liveStats, poolInfo, orderBook }
         ) : hasBook ? (
           <>
             <Row
-              label="Best Bid"
-              value={<span className="text-[#00ff88]">{orderBook.bestBid.toFixed(8)} XLM</span>}
-            />
-            <Row label="Bid Size" value={`${fmt(orderBook.bidAmount, 0)} ${token.symbol}`} />
-            <Row
-              label="Best Ask"
+              label="Buy Price"
               value={<span className="text-[#ff3b5c]">{orderBook.bestAsk.toFixed(8)} XLM</span>}
             />
-            <Row label="Ask Size" value={`${fmt(orderBook.askAmount, 0)} ${token.symbol}`} />
-            <Row label="Spread" value={`${orderBook.spread.toFixed(8)} XLM`} />
+            <Row label="Curve Depth" value={`${fmt(orderBook.askDepth, 0)} ${token.symbol}`} />
+            <Row label="Price Tiers" value={`${orderBook.askCount}`} />
+            <Row label="Entry Price" value={`${orderBook.askFloor.toFixed(8)} XLM`} />
+            {orderBook.bestBid > 0 && (
+              <>
+                <Row
+                  label="Sell Price"
+                  value={<span className="text-[#00ff88]">{orderBook.bestBid.toFixed(8)} XLM</span>}
+                />
+                <Row label="Spread" value={`${orderBook.spread.toFixed(8)} XLM`} />
+              </>
+            )}
           </>
         ) : (
           <p className="text-xs text-white/30">No open offers yet.</p>
