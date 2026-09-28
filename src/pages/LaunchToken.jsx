@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +31,7 @@ import {
   saveLaunchAttempt,
   getCurrentLaunchAttempt,
   clearLaunchAttempt,
+  listLaunchAttempts,
 } from '@/lib/launchState';
 import { ImagePlus } from 'lucide-react';
 
@@ -55,6 +56,27 @@ function cleanDomain(d) {
   return d.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 }
 
+function analyzeStall(attempt, availableXlm) {
+  const curvePreset = CURVE_PRESETS[attempt.curve] || CURVE_PRESETS.slow;
+  const cost = estimateLaunchCost({
+    liquidityPercent: attempt.liquidity,
+    rungs: curvePreset.rungs,
+    autoPool: attempt.autoPool,
+    hasInitialLiquidity: !!(attempt.initialLiquidity && parseFloat(attempt.initialLiquidity) >= 10),
+  });
+  const poolDeposit = attempt.autoPool
+    ? parseFloat(attempt.initialLiquidity) || 0
+    : attempt.initialLiquidity
+    ? parseFloat(attempt.initialLiquidity) || 0
+    : 0;
+  const issuerReserve = attempt.issuerPublicKey ? 0 : cost.issuerReserveXlm;
+  const required = issuerReserve + poolDeposit + cost.feeXlm + cost.reserveXlm;
+  const insufficient = availableXlm != null && availableXlm < required;
+  let reason = attempt.error;
+  if (!reason) reason = insufficient ? 'Insufficient XLM to finish the launch.' : 'Launch was interrupted.';
+  return { required, insufficient, reason };
+}
+
 export default function LaunchToken() {
   const { wallet } = useWallet();
   const { toast } = useToast();
@@ -71,7 +93,6 @@ export default function LaunchToken() {
   const [tomlText, setTomlText] = useState('');
   const [tokenId, setTokenId] = useState(null);
   const [availableXlm, setAvailableXlm] = useState(null);
-  const [resumeAttempt, setResumeAttempt] = useState(null);
   const [attempt, setAttempt] = useState(null);
   const [stepStatuses, setStepStatuses] = useState({});
   const [waiting, setWaiting] = useState(false);
@@ -95,14 +116,6 @@ export default function LaunchToken() {
       active = false;
     };
   }, [wallet?.address]);
-
-  useEffect(() => {
-    if (wallet?.address && form.symbol) {
-      setResumeAttempt(getCurrentLaunchAttempt(wallet.address, form.symbol.toUpperCase()));
-    } else {
-      setResumeAttempt(null);
-    }
-  }, [wallet?.address, form.symbol]);
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -417,7 +430,6 @@ export default function LaunchToken() {
       }
 
       clearLaunchAttempt(sym);
-      setResumeAttempt(null);
       setTokenId(store.tokenId);
 
       if (customDomain) {
@@ -468,8 +480,8 @@ export default function LaunchToken() {
   };
 
   const handleResume = () => {
-    if (!resumeAttempt) return;
-    runLaunch(resumeAttempt);
+    if (!stalledAttempt) return;
+    runLaunch(stalledAttempt);
   };
 
   const handleRetry = () => {
@@ -484,8 +496,7 @@ export default function LaunchToken() {
   };
 
   const handleDiscard = () => {
-    if (resumeAttempt) clearLaunchAttempt(resumeAttempt.symbol);
-    setResumeAttempt(null);
+    if (stalledAttempt) clearLaunchAttempt(stalledAttempt.symbol);
     setAttempt(null);
     setStep('form');
     toast({ title: 'Incomplete launch discarded', description: 'The 2 XLM issuer reserve cannot be recovered.' });
@@ -508,18 +519,32 @@ export default function LaunchToken() {
   const requiredXlm = cost.issuerReserveXlm + poolDeposit + cost.feeXlm + cost.reserveXlm;
   const balanceOk = availableXlm === null || availableXlm >= requiredXlm;
 
+  const stalledAttempt = useMemo(() => {
+    if (!wallet?.address) return null;
+    const attempts = listLaunchAttempts().filter(
+      (a) => a && a.walletAddress === wallet.address && a.step !== 'done'
+    );
+    return attempts[0] || null;
+  }, [wallet?.address, step]);
+
+  const stallAnalysis = stalledAttempt ? analyzeStall(stalledAttempt, availableXlm) : null;
+  const progressAnalysis = attempt ? analyzeStall(attempt, availableXlm) : null;
+
   return (
     <PageLayout title="Launch Token" rightAction={<WalletButton />}>
       {step === 'form' ? (
         <div className="p-4 space-y-4">
-          {resumeAttempt && (
-            <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-2xl p-4 space-y-3">
+          {stalledAttempt && stallAnalysis && (
+            <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/30 rounded-2xl p-4 space-y-3">
               <div>
-                <p className="text-sm font-bold">Incomplete ${resumeAttempt.symbol} launch detected</p>
-                <p className="text-xs text-white/40 mt-0.5">Last step: {resumeAttempt.step}</p>
-                <p className="text-xs text-white/40 mt-1">
-                  Resume to finish without spending another 2 XLM issuer reserve — we'll reuse the same issuer account.
-                </p>
+                <p className="text-sm font-bold text-[#ff3b5c]">Incomplete ${stalledAttempt.symbol} launch — stopped</p>
+                <p className="text-xs text-white/70 mt-1">{stallAnalysis.reason}</p>
+                {availableXlm != null && (
+                  <p className="text-xs text-white/40 mt-1">
+                    Required to finish: ~{stallAnalysis.required.toFixed(2)} XLM · Available: {availableXlm.toFixed(2)} XLM
+                  </p>
+                )}
+                <p className="text-xs text-white/40 mt-1">Last step: {stalledAttempt.step}. Resume reuses the same issuer — no new trustline or 2 XLM reserve.</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={handleResume} className="flex-1 py-2.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm">
@@ -826,6 +851,9 @@ export default function LaunchToken() {
               )}
             </div>
             {attempt.error && <p className="text-xs text-[#ff3b5c]">{attempt.error}</p>}
+            {stepStatuses[attempt.step] === 'failed' && progressAnalysis && availableXlm != null && (
+              <p className="text-xs text-white/40">Required ~{progressAnalysis.required.toFixed(2)} XLM · Available {availableXlm.toFixed(2)} XLM</p>
+            )}
           </div>
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-2 text-sm">
@@ -844,7 +872,7 @@ export default function LaunchToken() {
                 disabled={loading}
                 className="flex-1 py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
               >
-                Retry this step
+                Resume
               </button>
             ) : (
               <button
