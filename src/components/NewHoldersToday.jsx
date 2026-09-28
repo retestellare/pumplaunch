@@ -14,7 +14,8 @@ export default function NewHoldersToday({ tokens }) {
     (async () => {
       setLoading(true);
       try {
-        const data = await fetchNewHolders(tokens);
+        // Limit work to the 12 most recent tokens for fast load
+        const data = await fetchNewHolders(tokens.slice(0, 12));
         if (active) setHolders(data);
       } catch { /* ignore */ }
       if (active) setLoading(false);

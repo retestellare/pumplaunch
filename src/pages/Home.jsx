@@ -32,29 +32,36 @@ export default function Home() {
       setAllTokens(list);
       setLoading(false);
 
-      // Enrich with live on-chain data (first 20 tokens)
-      const toEnrich = list.slice(0, 20).filter((t) => t.issuer && t.asset_code);
-      for (const t of toEnrich) {
-        try {
-          const stats = await fetchAssetStats(t.asset_code, t.issuer);
-          if (!active) return;
-          setAllTokens((prev) =>
-            prev.map((p) =>
-              p.id === t.id
-                ? {
-                    ...p,
-                    holders: stats.holders || p.holders,
-                    volume_24h: stats.volume24h || p.volume_24h || 0,
-                    price: stats.price > 0 ? stats.price : p.price,
-                    market_cap: stats.price > 0 ? stats.price * (p.supply || 0) : p.market_cap,
-                    change_24h: stats.change24h != null ? stats.change24h : p.change_24h ?? 0,
-                  }
-                : p
-            )
-          );
-        } catch {
-          /* skip */
-        }
+      // Enrich with live on-chain data (first 12 tokens, in parallel chunks for speed)
+      const toEnrich = list.slice(0, 12).filter((t) => t.issuer && t.asset_code);
+      const CHUNK = 4;
+      for (let i = 0; i < toEnrich.length; i += CHUNK) {
+        if (!active) return;
+        const chunk = toEnrich.slice(i, i + CHUNK);
+        await Promise.all(
+          chunk.map(async (t) => {
+            try {
+              const stats = await fetchAssetStats(t.asset_code, t.issuer);
+              if (!active) return;
+              setAllTokens((prev) =>
+                prev.map((p) =>
+                  p.id === t.id
+                    ? {
+                        ...p,
+                        holders: stats.holders || p.holders,
+                        volume_24h: stats.volume24h || p.volume_24h || 0,
+                        price: stats.price > 0 ? stats.price : p.price,
+                        market_cap: stats.price > 0 ? stats.price * (p.supply || 0) : p.market_cap,
+                        change_24h: stats.change24h != null ? stats.change24h : p.change_24h ?? 0,
+                      }
+                    : p
+                )
+              );
+            } catch {
+              /* skip */
+            }
+          })
+        );
       }
     })();
     return () => {
@@ -64,8 +71,17 @@ export default function Home() {
 
   useEffect(() => {
     let list = [...allTokens];
-    if (tab === 'hot') list = list.sort((a, b) => (b.volume_24h || 0) - (a.volume_24h || 0));
-    else if (tab === 'holders') list = list.sort((a, b) => (b.holders || 0) - (a.holders || 0));
+    if (tab === 'hot')
+      list = list.sort(
+        (a, b) =>
+          (b.volume_24h || 0) - (a.volume_24h || 0) ||
+          (b.change_24h || 0) - (a.change_24h || 0) ||
+          new Date(b.created_date) - new Date(a.created_date)
+      );
+    else if (tab === 'holders')
+      list = list.sort(
+        (a, b) => (b.holders || 0) - (a.holders || 0) || new Date(b.created_date) - new Date(a.created_date)
+      );
     else {
       const now = new Date();
       const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());

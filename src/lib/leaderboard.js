@@ -3,8 +3,8 @@ const HORIZON_URL = 'https://horizon.stellar.org';
 export async function fetchTokenTrades(assetCode, issuer) {
   const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
   const [baseRes, counterRes] = await Promise.all([
-    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=200&order=desc`).catch(() => null),
-    fetch(`${HORIZON_URL}/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=200&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
   ]);
   const seen = new Set();
   const trades = [];
@@ -23,8 +23,17 @@ export async function fetchTokenTrades(assetCode, issuer) {
   return trades;
 }
 
+async function fetchAllTrades(tokens) {
+  const results = await Promise.all(
+    tokens.map(async (t) => {
+      if (!t.issuer || !t.asset_code) return [];
+      try { return await fetchTokenTrades(t.asset_code, t.issuer); } catch { return []; }
+    })
+  );
+  return tokens.map((t, i) => ({ token: t, trades: results[i] }));
+}
+
 // Realized cash-flow PnL per wallet: XLM received from sells − XLM spent on buys.
-// No mark-to-market on holdings (liquidity is thin), so gain% reflects realized trades only.
 export async function fetchLeaderboard(tokens) {
   const wallets = {};
   const ensure = (addr) => {
@@ -33,14 +42,8 @@ export async function fetchLeaderboard(tokens) {
     return wallets[addr];
   };
 
-  for (const t of tokens) {
-    if (!t.issuer || !t.asset_code) continue;
-    let trades = [];
-    try {
-      trades = await fetchTokenTrades(t.asset_code, t.issuer);
-    } catch {
-      continue;
-    }
+  const all = await fetchAllTrades(tokens);
+  for (const { trades } of all) {
     for (const tr of trades) {
       let buyer = null;
       let seller = null;
@@ -81,27 +84,24 @@ export async function fetchLeaderboard(tokens) {
 export async function fetchNewHolders(tokens) {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const buyers = [];
-  for (const t of tokens) {
-    if (!t.issuer || !t.asset_code) continue;
-    try {
-      const trades = await fetchTokenTrades(t.asset_code, t.issuer);
-      for (const tr of trades) {
-        const ts = new Date(tr.ledger_close_time).getTime();
-        if (ts < oneDayAgo) continue;
-        let buyer = null;
-        let amount = 0;
-        if (tr.counter_asset_type === 'native') {
-          buyer = tr.counter_account;
-          amount = parseFloat(tr.base_amount);
-        } else if (tr.base_asset_type === 'native') {
-          buyer = tr.base_account;
-          amount = parseFloat(tr.counter_amount);
-        }
-        if (buyer) {
-          buyers.push({ address: buyer, tokenSymbol: t.symbol, amount, time: tr.ledger_close_time });
-        }
+  const all = await fetchAllTrades(tokens);
+  for (const { token, trades } of all) {
+    for (const tr of trades) {
+      const ts = new Date(tr.ledger_close_time).getTime();
+      if (ts < oneDayAgo) continue;
+      let buyer = null;
+      let amount = 0;
+      if (tr.counter_asset_type === 'native') {
+        buyer = tr.counter_account;
+        amount = parseFloat(tr.base_amount);
+      } else if (tr.base_asset_type === 'native') {
+        buyer = tr.base_account;
+        amount = parseFloat(tr.counter_amount);
       }
-    } catch { /* skip */ }
+      if (buyer) {
+        buyers.push({ address: buyer, tokenSymbol: token.symbol, amount, time: tr.ledger_close_time });
+      }
+    }
   }
   const byAddr = {};
   for (const b of buyers) {

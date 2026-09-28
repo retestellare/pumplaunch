@@ -19,7 +19,7 @@ export default function Leaderboard({ tokens, walletAddress }) {
     (async () => {
       setLoading(true);
       try {
-        const data = await fetchLeaderboard(tokens);
+        const data = await fetchLeaderboard(tokens.slice(0, 12));
         if (!active) return;
         setRows(data);
         const pmap = await resolveProfiles(data.map((r) => r.address));
