@@ -501,6 +501,47 @@ export async function submitProgrammatically(transaction, keypair) {
   }
 }
 
+export async function pollForAccount(address, maxAttempts = 30) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const acct = await loadAccount(address);
+      if (acct) return acct;
+    } catch {
+      /* not confirmed yet */
+    }
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+  throw new Error(`Account ${address.slice(0, 8)}… not confirmed on network yet`);
+}
+
+export async function pollForTransaction(transactionResult, maxAttempts = 30) {
+  const hash = transactionResult?.hash;
+  if (!hash) return transactionResult;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const r = await server.transactions().transaction(hash).call();
+      if (r) return r;
+    } catch {
+      /* not yet indexed */
+    }
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+  return transactionResult;
+}
+
+export async function findExistingTrustline(walletAddress, assetCode) {
+  try {
+    const account = await loadAccount(walletAddress);
+    if (!account) return null;
+    const tl = (account.balances || []).find(
+      (b) => b.asset_code === assetCode && b.asset_type !== 'native' && b.asset_type !== 'liquidity_pool_shares'
+    );
+    return tl?.asset_issuer || null;
+  } catch {
+    return null;
+  }
+}
+
 export function generateStellarToml({ name, code, issuer, description, logoUrl, orgUrl }) {
   const lines = ['# stellar.toml', '[DOCUMENTATION]'];
   lines.push(`ORG_NAME="${name}"`);

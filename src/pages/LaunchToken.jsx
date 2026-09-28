@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
+import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
 import {
   loadAccount,
   parseBalances,
@@ -21,11 +22,15 @@ import {
   estimateLaunchCost,
   CURVE_PRESETS,
   HOME_DOMAIN,
+  pollForAccount,
+  pollForTransaction,
+  findExistingTrustline,
+  fetchTokenMetadata,
 } from '@/lib/stellar';
 import {
   saveLaunchAttempt,
+  getCurrentLaunchAttempt,
   clearLaunchAttempt,
-  getLaunchAttemptForWallet,
 } from '@/lib/launchState';
 import { ImagePlus } from 'lucide-react';
 
@@ -65,11 +70,12 @@ export default function LaunchToken() {
   const [imagePreview, setImagePreview] = useState(null);
   const [tomlText, setTomlText] = useState('');
   const [tokenId, setTokenId] = useState(null);
-  const [loadingStep, setLoadingStep] = useState('');
   const [availableXlm, setAvailableXlm] = useState(null);
   const [resumeAttempt, setResumeAttempt] = useState(null);
+  const [attempt, setAttempt] = useState(null);
+  const [stepStatuses, setStepStatuses] = useState({});
+  const [waiting, setWaiting] = useState(false);
 
-  // Load wallet's available XLM for the balance gate
   useEffect(() => {
     if (!wallet?.address) {
       setAvailableXlm(null);
@@ -90,14 +96,13 @@ export default function LaunchToken() {
     };
   }, [wallet?.address]);
 
-  // Detect a saved incomplete launch for this wallet
   useEffect(() => {
-    if (wallet?.address) {
-      setResumeAttempt(getLaunchAttemptForWallet(wallet.address));
+    if (wallet?.address && form.symbol) {
+      setResumeAttempt(getCurrentLaunchAttempt(wallet.address, form.symbol.toUpperCase()));
     } else {
       setResumeAttempt(null);
     }
-  }, [wallet?.address]);
+  }, [wallet?.address, form.symbol]);
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -156,260 +161,334 @@ export default function LaunchToken() {
     setStep('confirm');
   };
 
-  const runLaunch = async (attempt) => {
-    setLoading(true);
-    try {
-      const sym = attempt.form.symbol.toUpperCase();
-      const supply = attempt.autoPool
-        ? parseFloat(attempt.initialLiquidity) / BASE_PRICE
-        : parseFloat(attempt.form.supply);
-      const customDomain = attempt.form.customDomain ? cleanDomain(attempt.form.customDomain) : '';
-      const homeDomain = customDomain || HOME_DOMAIN;
+  const setStepStatus = (id, status) => setStepStatuses((prev) => ({ ...prev, [id]: status }));
 
-      // Upload logo once (skip if already uploaded)
-      if (!attempt.imageUrl && imageFile) {
+  const runLaunch = async (store) => {
+    store = { ...store, error: null };
+    setStep('progress');
+    setAttempt({ ...store });
+    setStepStatuses({});
+    setWaiting(false);
+    setLoading(true);
+
+    const sym = store.symbol.toUpperCase();
+    const customDomain = store.customDomain ? cleanDomain(store.customDomain) : '';
+    const homeDomain = customDomain || HOME_DOMAIN;
+    store.symbol = sym;
+
+    const setStage = (stepId, label) => {
+      store.step = stepId;
+      store.stepLabel = label;
+      setAttempt({ ...store });
+      saveLaunchAttempt(store);
+    };
+
+    try {
+      if (!store.imageUrl && imageFile) {
+        setStage('issuer', 'Uploading logo…');
         const uploadResult = await base44.integrations.Core.UploadPublicFile({ file: imageFile });
-        attempt.imageUrl = uploadResult.file_url;
-        saveLaunchAttempt(attempt);
+        store.imageUrl = uploadResult.file_url;
+        saveLaunchAttempt(store);
       }
-      const imageUrl = attempt.imageUrl;
 
       const account = await loadAccount(wallet.address);
       if (!account) {
-        toast({
-          title: 'Account not found',
-          description: 'Fund your wallet with XLM on Stellar mainnet first.',
-          variant: 'destructive',
-        });
+        toast({ title: 'Account not found', description: 'Fund your wallet with XLM on Stellar mainnet first.', variant: 'destructive' });
         setLoading(false);
-        setLoadingStep('');
         return;
       }
 
-      // Verify on-chain progress to skip completed steps
-      const progress = attempt.issuerPublicKey
-        ? await verifyLaunchProgress({
-            walletAddress: wallet.address,
-            issuerPublicKey: attempt.issuerPublicKey,
-            assetCode: sym,
-            isAutoPool: attempt.autoPool,
-          })
-        : { issuerExists: false, trustlineExists: false, tokensIssued: false, liquidityExists: false };
-
-      let issuerKeypair;
-      let issuerPublicKey;
-
-      // Step 1: Create issuer account + trustline
-      if (progress.issuerExists && attempt.issuerSecret && attempt.issuerPublicKey) {
-        issuerKeypair = keypairFromSecret(attempt.issuerSecret);
-        issuerPublicKey = attempt.issuerPublicKey;
-      } else {
-        setLoadingStep('Creating issuer account…');
-        const { transaction: setupTx, issuerKeypair: kp, issuerPublicKey: pk } = buildLaunchSetupTransaction({
-          sourceAccount: account,
-          assetCode: sym,
-          homeDomain,
-        });
-        await signAndSubmit(setupTx);
-        attempt.issuerSecret = kp.secret();
-        attempt.issuerPublicKey = pk;
-        attempt.step = 'issuer';
-        saveLaunchAttempt(attempt);
-        issuerKeypair = kp;
-        issuerPublicKey = pk;
-        await new Promise((r) => setTimeout(r, 5000));
+      // Reuse an existing on-chain trustline for this symbol (no duplicate issuer)
+      if (!store.issuerPublicKey) {
+        const existingIssuer = await findExistingTrustline(wallet.address, sym);
+        if (existingIssuer) {
+          store.issuerPublicKey = existingIssuer;
+          store.issuerSecret = null;
+          store.reusedAsset = true;
+          saveLaunchAttempt(store);
+          setAttempt({ ...store });
+          toast({ title: `Existing $${sym} found`, description: 'Reusing the token you already hold — no new trustline created.' });
+        }
       }
 
-      // Step 2: Issue tokens (setOptions lock + payment)
-      if (!progress.tokensIssued) {
-        setLoadingStep('Issuing tokens…');
-        const issuerAccount = await loadAccount(issuerPublicKey);
-        if (!issuerAccount) throw new Error('Issuer account not found after creation');
-        const issueTx = buildIssuerSetupTransaction({
-          issuerAccount,
-          userAddress: wallet.address,
-          assetCode: sym,
-          totalSupply: supply,
-          homeDomain,
-        });
-        await submitProgrammatically(issueTx, issuerKeypair);
-        attempt.step = 'issue';
-        saveLaunchAttempt(attempt);
-        await new Promise((r) => setTimeout(r, 5000));
+      const issuerPublicKey = store.issuerPublicKey;
+      const supply = store.reusedAsset
+        ? parseFloat(store.supply) || 0
+        : store.autoPool
+        ? parseFloat(store.initialLiquidity) / BASE_PRICE
+        : parseFloat(store.supply);
+      store.supply = supply;
+
+      // Step 1: Create issuer account + trustline
+      setStage('issuer', store.reusedAsset ? 'Existing token — skipped' : 'Creating issuer account…');
+      if (store.reusedAsset) {
+        setStepStatus('issuer', 'done');
+      } else {
+        const progress = issuerPublicKey
+          ? await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey, assetCode: sym, isAutoPool: store.autoPool })
+          : { trustlineExists: false, tokensIssued: false, liquidityExists: false };
+        if (progress.trustlineExists) {
+          setStepStatus('issuer', 'done');
+        } else {
+          setWaiting(true);
+          setStage('issuer', 'Waiting for your wallet…');
+          const { transaction: setupTx, issuerKeypair: kp, issuerPublicKey: pk } = buildLaunchSetupTransaction({
+            sourceAccount: account,
+            assetCode: sym,
+            homeDomain,
+          });
+          try {
+            await signAndSubmit(setupTx);
+            store.issuerSecret = kp.secret();
+            store.issuerPublicKey = pk;
+            saveLaunchAttempt(store);
+            setAttempt({ ...store });
+            await pollForAccount(pk);
+          } catch (e) {
+            setStepStatus('issuer', 'failed');
+            setAttempt((a) => ({ ...a, error: e.message }));
+            throw e;
+          } finally {
+            setWaiting(false);
+          }
+          setStage('issuer', 'Issuer account created');
+          setStepStatus('issuer', 'done');
+        }
+      }
+
+      // Step 2: Issue tokens
+      setStage('issue', store.reusedAsset ? 'Existing token — skipped' : 'Issuing tokens…');
+      if (store.reusedAsset) {
+        setStepStatus('issue', 'done');
+      } else {
+        const p2 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey, assetCode: sym, isAutoPool: store.autoPool });
+        if (p2.tokensIssued) {
+          setStepStatus('issue', 'done');
+        } else {
+          if (!store.issuerSecret) throw new Error('Issuer key unavailable — resume to retry issuing.');
+          const issuerKeypair = keypairFromSecret(store.issuerSecret);
+          const issuerAccount = await loadAccount(issuerPublicKey);
+          if (!issuerAccount) throw new Error('Issuer account not found after creation');
+          const issueTx = buildIssuerSetupTransaction({
+            issuerAccount,
+            userAddress: wallet.address,
+            assetCode: sym,
+            totalSupply: supply,
+            homeDomain,
+          });
+          try {
+            const result = await submitProgrammatically(issueTx, issuerKeypair);
+            await pollForTransaction(result);
+          } catch (e) {
+            setStepStatus('issue', 'failed');
+            setAttempt((a) => ({ ...a, error: e.message }));
+            throw e;
+          }
+          saveLaunchAttempt(store);
+          setAttempt({ ...store });
+          setStage('issue', 'Tokens issued');
+          setStepStatus('issue', 'done');
+        }
       }
 
       // Step 3: Seed liquidity
-      const progress2 = await verifyLaunchProgress({
-        walletAddress: wallet.address,
-        issuerPublicKey,
-        assetCode: sym,
-        isAutoPool: attempt.autoPool,
-      });
-      if (!progress2.liquidityExists) {
-        setLoadingStep('Seeding liquidity…');
-        const userAccount = await loadAccount(wallet.address);
-
-        if (attempt.autoPool) {
-          const xlmAmount = parseFloat(attempt.initialLiquidity);
-          const tokenAmount = supply;
-          const poolTx = buildPoolSetupTransaction({
-            sourceAccount: userAccount,
-            assetCode: sym,
-            issuer: issuerPublicKey,
-            xlmAmount,
-            tokenAmount,
-          });
-          await signAndSubmit(poolTx);
-        } else {
-          const liquidityAmount = (supply * attempt.liquidity) / 100;
-          if (liquidityAmount > 0) {
-            const curvePreset = CURVE_PRESETS[attempt.curve];
-            const bondingTx = buildBondingCurveTransaction({
-              userAccount,
-              assetCode: sym,
-              issuerPublicKey,
-              liquidityAmount,
-              rungs: curvePreset.rungs,
-              priceStep: curvePreset.priceStep,
-            });
-            await signAndSubmit(bondingTx);
-          }
-          if (attempt.initialLiquidity) {
-            const xlmAmount = parseFloat(attempt.initialLiquidity);
-            const tokenAmount = xlmAmount / BASE_PRICE;
-            const poolTx = buildPoolSetupTransaction({
-              sourceAccount: userAccount,
-              assetCode: sym,
-              issuer: issuerPublicKey,
-              xlmAmount,
-              tokenAmount,
-            });
-            await signAndSubmit(poolTx);
+      setStage('liquidity', store.reusedAsset ? 'Existing token — skipped' : 'Seeding liquidity…');
+      if (store.reusedAsset) {
+        setStepStatus('liquidity', 'done');
+      } else {
+        const p3 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey, assetCode: sym, isAutoPool: store.autoPool });
+        if (!p3.liquidityExists) {
+          const userAccount = await loadAccount(wallet.address);
+          setWaiting(true);
+          try {
+            if (store.autoPool) {
+              const xlmAmount = parseFloat(store.initialLiquidity);
+              const poolTx = buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: issuerPublicKey, xlmAmount, tokenAmount: supply });
+              await signAndSubmit(poolTx);
+            } else {
+              const liquidityAmount = (supply * store.liquidity) / 100;
+              if (liquidityAmount > 0) {
+                const curvePreset = CURVE_PRESETS[store.curve];
+                const bondingTx = buildBondingCurveTransaction({
+                  userAccount,
+                  assetCode: sym,
+                  issuerPublicKey,
+                  liquidityAmount,
+                  rungs: curvePreset.rungs,
+                  priceStep: curvePreset.priceStep,
+                });
+                await signAndSubmit(bondingTx);
+              }
+              if (store.initialLiquidity) {
+                const xlmAmount = parseFloat(store.initialLiquidity);
+                const tokenAmount = xlmAmount / BASE_PRICE;
+                const poolTx = buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: issuerPublicKey, xlmAmount, tokenAmount });
+                await signAndSubmit(poolTx);
+              }
+            }
+          } catch (e) {
+            setStepStatus('liquidity', 'failed');
+            setAttempt((a) => ({ ...a, error: e.message }));
+            throw e;
+          } finally {
+            setWaiting(false);
           }
         }
-        attempt.step = 'pool';
-        saveLaunchAttempt(attempt);
+        setStage('liquidity', 'Liquidity seeded');
+        setStepStatus('liquidity', 'done');
       }
 
-      // Step 4: Create DB record
-      setLoadingStep('Finalizing…');
-      const toml = generateStellarToml({
-        name: attempt.form.name,
-        code: sym,
-        issuer: issuerPublicKey,
-        description: attempt.form.description,
-        logoUrl: imageUrl,
-        orgUrl: customDomain ? `https://${customDomain}` : `https://${HOME_DOMAIN}`,
-      });
-
-      let t;
-      if (attempt.tokenId) {
-        t = { id: attempt.tokenId };
-      } else {
+      // Step 4: List in app
+      setStage('list', 'Listing in app…');
+      if (store.reusedAsset && (!store.imageUrl || store.name === store.symbol)) {
+        try {
+          const meta = await fetchTokenMetadata(sym, issuerPublicKey);
+          if (meta) {
+            if (meta.logo && !store.imageUrl) store.imageUrl = meta.logo;
+            if (meta.name) store.name = meta.name;
+            saveLaunchAttempt(store);
+            setAttempt({ ...store });
+          }
+        } catch {
+          /* metadata optional */
+        }
+      }
+      if (!store.tokenId) {
         const existing = await base44.entities.Token.filter({ issuer: issuerPublicKey, asset_code: sym });
         if (existing && existing.length > 0) {
-          t = existing[0];
+          store.tokenId = existing[0].id;
         } else {
-          t = await base44.entities.Token.create({
-            name: attempt.form.name,
+          const toml = generateStellarToml({
+            name: store.name,
+            code: sym,
+            issuer: issuerPublicKey,
+            description: store.description,
+            logoUrl: store.imageUrl,
+            orgUrl: customDomain ? `https://${customDomain}` : `https://${HOME_DOMAIN}`,
+          });
+          const record = {
+            name: store.name,
             symbol: sym,
-            description: attempt.form.description,
-            image_url: imageUrl,
+            description: store.description,
+            image_url: store.imageUrl,
             creator: wallet.address,
             issuer: issuerPublicKey,
             asset_code: sym,
             home_domain: homeDomain,
             custom_domain: customDomain || null,
             supply,
-            liquidity_percent: attempt.liquidity,
-            curve: attempt.curve,
+            liquidity_percent: store.liquidity,
+            curve: store.curve,
             toml_content: toml,
             price: 0.000001,
             market_cap: 0.000001 * supply,
             holders: 1,
             volume_24h: 0,
             change_24h: 0,
-            is_graduated: false,
-            is_auto_pool: attempt.autoPool,
-          });
+            is_graduated: true,
+            is_auto_pool: store.autoPool,
+          };
+          let created;
+          try {
+            created = await base44.entities.Token.create(record);
+          } catch {
+            await new Promise((r) => setTimeout(r, 1500));
+            created = await base44.entities.Token.create(record);
+          }
+          store.tokenId = created.id;
+          store.tomlText = toml;
+          saveLaunchAttempt(store);
+          setAttempt({ ...store });
         }
-        attempt.tokenId = t.id;
-        attempt.tomlText = toml;
-        attempt.step = 'db';
-        saveLaunchAttempt(attempt);
       }
+      setStage('list', 'Listed');
+      setStepStatus('list', 'done');
 
       try {
         await base44.entities.Activity.create({
           wallet_address: wallet.address,
           type: 'launch',
           token_symbol: sym,
-          token_id: t.id,
-          details: `Launched $${sym}`,
+          token_id: store.tokenId,
+          details: store.reusedAsset ? `Listed $${sym}` : `Launched $${sym}`,
         });
       } catch {
         /* ignore */
       }
 
-      // Done — clear saved state
-      clearLaunchAttempt();
+      clearLaunchAttempt(sym);
       setResumeAttempt(null);
-      setTokenId(t.id);
+      setTokenId(store.tokenId);
 
       if (customDomain) {
-        setTomlText(toml);
+        setTomlText(store.tomlText);
         setStep('toml');
-        toast({ title: `$${sym} launched! Upload your toml next.` });
+        toast({ title: store.reusedAsset ? `$${sym} listed!` : `$${sym} launched!`, description: 'Upload your toml next.' });
       } else {
-        toast({ title: `$${sym} launched on mainnet!` });
-        navigate(`/token/${t.id}`);
+        toast({ title: store.reusedAsset ? `$${sym} listed in the app!` : `$${sym} launched on mainnet!` });
+        navigate(`/token/${store.tokenId}`);
       }
     } catch (e) {
-      toast({ title: 'Launch failed', description: e.message || String(e), variant: 'destructive' });
+      toast({
+        title: 'Launch step failed',
+        description: `${e.message || String(e)}. Your progress is saved — resume safely when ready.`,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setWaiting(false);
     }
-    setLoading(false);
-    setLoadingStep('');
   };
 
   const handleNewLaunch = () => {
-    clearLaunchAttempt();
-    setResumeAttempt(null);
-    const attempt = {
+    const sym = form.symbol.toUpperCase();
+    const existing = getCurrentLaunchAttempt(wallet.address, sym);
+    if (existing) {
+      runLaunch(existing);
+      return;
+    }
+    const store = {
       walletAddress: wallet.address,
-      form: { ...form },
+      name: form.name.trim(),
+      symbol: sym,
+      description: form.description.trim(),
+      supply: form.supply,
+      customDomain: form.customDomain,
       liquidity,
       autoPool,
       initialLiquidity,
       curve,
-      issuerSecret: null,
-      issuerPublicKey: null,
       imageUrl: null,
-      step: 'start',
-      tokenId: null,
       tomlText: null,
+      tokenId: null,
+      step: 'start',
+      error: null,
     };
+    runLaunch(store);
+  };
+
+  const handleResume = () => {
+    if (!resumeAttempt) return;
+    runLaunch(resumeAttempt);
+  };
+
+  const handleRetry = () => {
+    if (!attempt) return;
     runLaunch(attempt);
   };
 
-  const handleResume = async () => {
-    const attempt = resumeAttempt;
-    if (!attempt) return;
-    setForm(attempt.form);
-    setLiquidity(attempt.liquidity);
-    setAutoPool(attempt.autoPool);
-    setInitialLiquidity(attempt.initialLiquidity);
-    setCurve(attempt.curve);
-    setStep('confirm');
-    await runLaunch(attempt);
+  const handleAbort = () => {
+    setLoading(false);
+    setWaiting(false);
+    setStep('form');
   };
 
   const handleDiscard = () => {
-    clearLaunchAttempt();
+    if (resumeAttempt) clearLaunchAttempt(resumeAttempt.symbol);
     setResumeAttempt(null);
-    toast({
-      title: 'Incomplete launch discarded',
-      description: 'The 2 XLM issuer reserve cannot be recovered.',
-    });
+    setAttempt(null);
+    setStep('form');
+    toast({ title: 'Incomplete launch discarded', description: 'The 2 XLM issuer reserve cannot be recovered.' });
   };
 
   const curvePreset = CURVE_PRESETS[curve];
@@ -421,7 +500,6 @@ export default function LaunchToken() {
     hasInitialLiquidity: !!(initialLiquidity && parseFloat(initialLiquidity) >= 10),
   });
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
-
   const poolDeposit = autoPool
     ? parseFloat(initialLiquidity) || 0
     : initialLiquidity
@@ -437,25 +515,17 @@ export default function LaunchToken() {
           {resumeAttempt && (
             <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-2xl p-4 space-y-3">
               <div>
-                <p className="text-sm font-bold">Incomplete launch detected</p>
-                <p className="text-xs text-white/40 mt-0.5">
-                  ${resumeAttempt.form.symbol} · last step: {resumeAttempt.step}
-                </p>
+                <p className="text-sm font-bold">Incomplete ${resumeAttempt.symbol} launch detected</p>
+                <p className="text-xs text-white/40 mt-0.5">Last step: {resumeAttempt.step}</p>
                 <p className="text-xs text-white/40 mt-1">
-                  Resume to finish without spending another 2 XLM issuer reserve.
+                  Resume to finish without spending another 2 XLM issuer reserve — we'll reuse the same issuer account.
                 </p>
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={handleResume}
-                  className="flex-1 py-2.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm"
-                >
+                <button onClick={handleResume} className="flex-1 py-2.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm">
                   Resume
                 </button>
-                <button
-                  onClick={handleDiscard}
-                  className="flex-1 py-2.5 rounded-xl bg-white/5 text-white font-bold text-sm"
-                >
+                <button onClick={handleDiscard} className="flex-1 py-2.5 rounded-xl bg-white/5 text-white font-bold text-sm">
                   Discard
                 </button>
               </div>
@@ -592,34 +662,32 @@ export default function LaunchToken() {
           </div>
 
           {!autoPool && (
-          <div>
-            <label className="text-xs text-white/40 mb-2 block">Price Curve</label>
-            <div className="space-y-2">
-              {CURVE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setCurve(opt.value)}
-                  className={`w-full text-left px-4 py-3 rounded-xl border transition ${
-                    curve === opt.value
-                      ? 'border-[#00ff88] bg-[#00ff88]/5'
-                      : 'border-white/5 bg-[#141518]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm">{opt.label}</span>
-                    {curve === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
-                  </div>
-                  <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
-                  <div className="text-[10px] text-white/30 mt-0.5">{opt.rungs} rungs · {opt.step}× step</div>
-                </button>
-              ))}
-            </div>
-            {(curve === 'fast' || curve === 'hyper') && (
-              <div className="mt-2 bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl px-3 py-2">
-                <p className="text-xs text-white/60">⚠ Prices rise sharply after early buys — later buyers pay much more.</p>
+            <div>
+              <label className="text-xs text-white/40 mb-2 block">Price Curve</label>
+              <div className="space-y-2">
+                {CURVE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setCurve(opt.value)}
+                    className={`w-full text-left px-4 py-3 rounded-xl border transition ${
+                      curve === opt.value ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm">{opt.label}</span>
+                      {curve === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
+                    </div>
+                    <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
+                    <div className="text-[10px] text-white/30 mt-0.5">{opt.rungs} rungs · {opt.step}× step</div>
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
+              {(curve === 'fast' || curve === 'hyper') && (
+                <div className="mt-2 bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl px-3 py-2">
+                  <p className="text-xs text-white/60">⚠ Prices rise sharply after early buys — later buyers pay much more.</p>
+                </div>
+              )}
+            </div>
           )}
 
           {wallet && availableXlm !== null && !balanceOk && (
@@ -653,6 +721,7 @@ export default function LaunchToken() {
         </div>
       ) : step === 'confirm' ? (
         <div className="p-4 space-y-4">
+          <LaunchStepTracker steps={STEPS} currentStep="issuer" statuses={{}} />
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
             <h3 className="font-bold">Confirm Mainnet Launch</h3>
             <div className="space-y-2 text-sm">
@@ -730,9 +799,67 @@ export default function LaunchToken() {
               disabled={loading}
               className="flex-1 py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
             >
-              {loading ? (loadingStep || 'Launching…') : 'Confirm & Launch'}
+              {loading ? 'Launching…' : 'Confirm & Launch'}
             </button>
           </div>
+        </div>
+      ) : step === 'progress' && attempt ? (
+        <div className="p-4 space-y-3">
+          <LaunchStepTracker steps={STEPS} currentStep={attempt.step} statuses={stepStatuses} />
+
+          {waiting && (
+            <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3 flex items-center gap-3">
+              <div className="w-4 h-4 border-2 border-[#00ff88] border-t-transparent rounded-full animate-spin shrink-0" />
+              <p className="text-sm text-white/80">Waiting for your wallet… Approve the transaction in your wallet app to continue.</p>
+            </div>
+          )}
+
+          <div className="bg-[#141518] rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold">{attempt.stepLabel || 'Working…'}</span>
+              {stepStatuses[attempt.step] === 'failed' ? (
+                <span className="text-xs text-[#ff3b5c] font-bold">Failed</span>
+              ) : stepStatuses[attempt.step] === 'done' ? (
+                <span className="text-xs text-[#00ff88]">Done</span>
+              ) : (
+                <span className="text-xs text-[#00ff88]">In progress</span>
+              )}
+            </div>
+            {attempt.error && <p className="text-xs text-[#ff3b5c]">{attempt.error}</p>}
+          </div>
+
+          <div className="bg-[#141518] rounded-2xl p-4 space-y-2 text-sm">
+            <Row label="Asset" value={`$${attempt.symbol}`} />
+            <Row label="Mode" value={attempt.autoPool ? '100% Auto-Pool' : `Bonding Curve · ${attempt.liquidity}%`} />
+            <Row label="Supply" value={Math.floor(parseFloat(attempt.supply) || 0).toLocaleString()} />
+            {attempt.issuerPublicKey && (
+              <Row label="Issuer" value={`${attempt.issuerPublicKey.slice(0, 8)}…${attempt.issuerPublicKey.slice(-4)}`} />
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            {stepStatuses[attempt.step] === 'failed' ? (
+              <button
+                onClick={handleRetry}
+                disabled={loading}
+                className="flex-1 py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
+              >
+                Retry this step
+              </button>
+            ) : (
+              <button
+                onClick={handleAbort}
+                disabled={loading}
+                className="flex-1 py-3.5 rounded-xl bg-white/5 text-white font-bold text-sm disabled:opacity-50"
+              >
+                {loading ? 'Running…' : 'Cancel (progress saved)'}
+              </button>
+            )}
+          </div>
+
+          <p className="text-xs text-white/40 text-center">
+            Your progress is saved automatically. You can close this page and resume safely later.
+          </p>
         </div>
       ) : (
         <div className="p-4 space-y-4">
