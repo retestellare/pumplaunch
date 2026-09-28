@@ -35,6 +35,17 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'How sales & first buys work',
+    items: [
+      'When you launch, your tokens + XLM are seeded as sell offers on the DEX (a bonding curve) or into a liquidity pool.',
+      'The first buyer sends XLM and receives tokens at the lowest price rung; each following buy climbs to the next rung, so price rises with demand.',
+      'Bonding curve mode: price steps up in fixed rungs (Slow = gentle, Hyper = steep spikes). Pool mode: price shifts by supply/demand ratio.',
+      'Sellers do the reverse — they send tokens back for XLM, which walks the price down the rungs.',
+      'Your initial liquidity sets the starting price and how much the price jumps per trade. Bigger liquidity = smoother, safer early trading.',
+      'Graduation (the GRAD badge) means a token has enough activity to be considered established on the market.',
+    ],
+  },
+  {
     title: 'Costs to expect',
     items: [
       '~2 XLM issuer reserve — non-refundable (pays for the locked issuer account).',
