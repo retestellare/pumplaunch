@@ -41,6 +41,19 @@
       "type": "boolean",
       "default": false
     },
+    "pools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "xlm",
+          "usdc"
+        ]
+      },
+      "default": [
+        "xlm"
+      ]
+    },
     "curve": {
       "type": "string",
       "enum": [

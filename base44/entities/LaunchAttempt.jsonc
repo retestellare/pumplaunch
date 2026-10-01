@@ -44,6 +44,15 @@
     "reused_asset": {
       "type": "boolean"
     },
+    "pool_type": {
+      "type": "string",
+      "enum": [
+        "xlm",
+        "usdc",
+        "dual"
+      ],
+      "default": "xlm"
+    },
     "step": {
       "type": "string"
     },

@@ -1,5 +1,8 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { StellarWalletsKit, ensureKitInit } from './walletKit';
+import { USDC_CODE, USDC_ISSUER } from './pools';
+
+export { USDC_CODE, USDC_ISSUER };
 
 const HORIZON_URL = 'https://horizon.stellar.org';
 export const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
@@ -9,6 +12,30 @@ const RESERVE_PER_ENTRY = 0.5;
 
 export const BASE_PRICE = 0.000001;
 const ISSUER_RESERVE_XLM = 2;
+
+// The asset a market is quoted in. XLM is native; USDC is Circle's mainnet
+// credit asset, so any USDC market needs a trustline before it can be spent.
+export function quoteAsset(quote) {
+  return quote === 'usdc' ? new StellarSdk.Asset(USDC_CODE, USDC_ISSUER) : StellarSdk.Asset.native();
+}
+
+export function quoteReserveKey(quote) {
+  return quote === 'usdc' ? `${USDC_CODE}:${USDC_ISSUER}` : 'native';
+}
+
+// Stellar demands pool reserves in a fixed order, and the deposit amounts follow
+// that order — so the pair is sorted before the pool is built.
+function assetSortKey(asset) {
+  if (asset.isNative()) return '0:native';
+  const code = asset.getCode();
+  return `${code.length <= 4 ? 1 : 2}:${code}:${asset.getIssuer()}`;
+}
+
+function orderedPoolPair(quoteSide, tokenSide) {
+  const quoteFirst = assetSortKey(quoteSide) <= assetSortKey(tokenSide);
+  const [a, b] = quoteFirst ? [quoteSide, tokenSide] : [tokenSide, quoteSide];
+  return { poolAsset: new StellarSdk.LiquidityPoolAsset(a, b), quoteFirst };
+}
 
 export const CURVE_PRESETS = {
   slow: { rungs: 6, priceStep: 1.6, label: 'Slow', desc: 'Steady, gradual price growth' },
@@ -258,22 +285,30 @@ export function buildBondingCurveTransaction({ userAccount, assetCode, issuerPub
   return tx.setTimeout(300).build();
 }
 
-export function buildBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, minTokensOut }) {
+// A buy sends the quote asset and asks for the token. When the quote is USDC it
+// must already be held, so the trustline is added in the same transaction — one
+// wallet approval instead of two.
+export function buildBuyTransaction({ sourceAccount, assetCode, issuer, quote = 'xlm', xlmAmount, amount, minTokensOut }) {
+  const sendAmount = amount != null ? amount : xlmAmount;
   const buyer = sourceAccount.accountId();
+  const other = quoteAsset(quote);
   const asset = new StellarSdk.Asset(assetCode, issuer);
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
+  if (quote === 'usdc' && !hasTrustline(sourceAccount, USDC_CODE, USDC_ISSUER)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset: other }));
+  }
   if (!hasTrustline(sourceAccount, assetCode, issuer)) {
     tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
   }
 
   tx.addOperation(
     StellarSdk.Operation.pathPaymentStrictSend({
-      sendAsset: StellarSdk.Asset.native(),
-      sendAmount: formatAmount(xlmAmount),
+      sendAsset: other,
+      sendAmount: formatAmount(sendAmount),
       destination: buyer,
       destAsset: asset,
       destMin: formatAmount(minTokensOut),
@@ -283,42 +318,53 @@ export function buildBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmoun
   return tx.setTimeout(300).build();
 }
 
-export function buildSellTransaction({ sourceAccount, assetCode, issuer, tokenAmount, minXlmOut }) {
+export function buildSellTransaction({ sourceAccount, assetCode, issuer, quote = 'xlm', tokenAmount, minXlmOut, minOut }) {
+  const min = minOut != null ? minOut : minXlmOut;
   const seller = sourceAccount.accountId();
+  const other = quoteAsset(quote);
   const asset = new StellarSdk.Asset(assetCode, issuer);
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
+
+  if (quote === 'usdc' && !hasTrustline(sourceAccount, USDC_CODE, USDC_ISSUER)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset: other }));
+  }
 
   tx.addOperation(
     StellarSdk.Operation.pathPaymentStrictSend({
       sendAsset: asset,
       sendAmount: formatAmount(tokenAmount),
       destination: seller,
-      destAsset: StellarSdk.Asset.native(),
-      destMin: formatAmount(minXlmOut),
+      destAsset: other,
+      destMin: formatAmount(min),
     })
   );
 
   return tx.setTimeout(300).build();
 }
 
-export function buildLimitBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, triggerPrice }) {
+export function buildLimitBuyTransaction({ sourceAccount, assetCode, issuer, quote = 'xlm', xlmAmount, amount, triggerPrice }) {
+  const spend = amount != null ? amount : xlmAmount;
+  const other = quoteAsset(quote);
   const asset = new StellarSdk.Asset(assetCode, issuer);
-  const tokenAmount = xlmAmount / triggerPrice;
+  const tokenAmount = spend / triggerPrice;
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
+  if (quote === 'usdc' && !hasTrustline(sourceAccount, USDC_CODE, USDC_ISSUER)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset: other }));
+  }
   if (!hasTrustline(sourceAccount, assetCode, issuer)) {
     tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
   }
 
   tx.addOperation(
     StellarSdk.Operation.manageBuyOffer({
-      selling: StellarSdk.Asset.native(),
+      selling: other,
       buying: asset,
       buyAmount: formatAmount(tokenAmount),
       price: formatPrice(triggerPrice),
@@ -329,17 +375,22 @@ export function buildLimitBuyTransaction({ sourceAccount, assetCode, issuer, xlm
   return tx.setTimeout(300).build();
 }
 
-export function buildLimitSellTransaction({ sourceAccount, assetCode, issuer, tokenAmount, triggerPrice }) {
+export function buildLimitSellTransaction({ sourceAccount, assetCode, issuer, quote = 'xlm', tokenAmount, triggerPrice }) {
+  const other = quoteAsset(quote);
   const asset = new StellarSdk.Asset(assetCode, issuer);
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
+  if (quote === 'usdc' && !hasTrustline(sourceAccount, USDC_CODE, USDC_ISSUER)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset: other }));
+  }
+
   tx.addOperation(
     StellarSdk.Operation.manageSellOffer({
       selling: asset,
-      buying: StellarSdk.Asset.native(),
+      buying: other,
       amount: formatAmount(tokenAmount),
       price: formatPrice(triggerPrice),
       offerId: '0',
@@ -406,22 +457,29 @@ export async function fetchOpenOrders(address, assetCode, issuer) {
     });
 }
 
-export function buildPoolSetupTransaction({ sourceAccount, assetCode, issuer, xlmAmount, tokenAmount }) {
+// Creates the token's pool against the chosen quote asset. quoteAmount falls
+// back to xlmAmount so XLM launches keep their original call shape.
+export function buildPoolSetupTransaction({ sourceAccount, assetCode, issuer, quote = 'xlm', quoteAmount, xlmAmount, tokenAmount }) {
+  const amountIn = quoteAmount != null ? quoteAmount : xlmAmount;
+  const other = quoteAsset(quote);
   const asset = new StellarSdk.Asset(assetCode, issuer);
-  const lpAsset = new StellarSdk.LiquidityPoolAsset(StellarSdk.Asset.native(), asset, StellarSdk.LiquidityPoolFeeV18);
-  const poolId = bytesToHex(StellarSdk.getLiquidityPoolId('constant_product', lpAsset.getLiquidityPoolParameters()));
+  const { poolAsset, quoteFirst } = orderedPoolPair(other, asset);
+  const poolId = bytesToHex(StellarSdk.getLiquidityPoolId('constant_product', poolAsset.getLiquidityPoolParameters()));
 
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  tx.addOperation(StellarSdk.Operation.changeTrust({ asset: lpAsset }));
+  if (quote === 'usdc' && !hasTrustline(sourceAccount, USDC_CODE, USDC_ISSUER)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset: other }));
+  }
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset: poolAsset }));
   tx.addOperation(
     StellarSdk.Operation.liquidityPoolDeposit({
       liquidityPoolId: poolId,
-      maxAmountA: formatAmount(xlmAmount),
-      maxAmountB: formatAmount(tokenAmount),
+      maxAmountA: formatAmount(quoteFirst ? amountIn : tokenAmount),
+      maxAmountB: formatAmount(quoteFirst ? tokenAmount : amountIn),
       minPrice: { n: 1, d: 100000000 },
       maxPrice: { n: 1, d: 1000 },
     })
@@ -430,50 +488,14 @@ export function buildPoolSetupTransaction({ sourceAccount, assetCode, issuer, xl
   return tx.setTimeout(300).build();
 }
 
-export function buildPoolBuyTransaction({ sourceAccount, assetCode, issuer, xlmAmount, minTokensOut }) {
-  const buyer = sourceAccount.accountId();
-  const asset = new StellarSdk.Asset(assetCode, issuer);
-  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  if (!hasTrustline(sourceAccount, assetCode, issuer)) {
-    tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
-  }
-
-  tx.addOperation(
-    StellarSdk.Operation.pathPaymentStrictSend({
-      sendAsset: StellarSdk.Asset.native(),
-      sendAmount: formatAmount(xlmAmount),
-      destination: buyer,
-      destAsset: asset,
-      destMin: formatAmount(minTokensOut),
-    })
-  );
-
-  return tx.setTimeout(300).build();
+// A pool swap is a path payment — the same operation the offer route uses, so
+// both directions share one builder instead of a duplicated copy.
+export function buildPoolBuyTransaction(args) {
+  return buildBuyTransaction(args);
 }
 
-export function buildPoolSellTransaction({ sourceAccount, assetCode, issuer, tokenAmount, minXlmOut }) {
-  const seller = sourceAccount.accountId();
-  const asset = new StellarSdk.Asset(assetCode, issuer);
-  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  tx.addOperation(
-    StellarSdk.Operation.pathPaymentStrictSend({
-      sendAsset: asset,
-      sendAmount: formatAmount(tokenAmount),
-      destination: seller,
-      destAsset: StellarSdk.Asset.native(),
-      destMin: formatAmount(minXlmOut),
-    })
-  );
-
-  return tx.setTimeout(300).build();
+export function buildPoolSellTransaction(args) {
+  return buildSellTransaction(args);
 }
 
 function reserveAsset(r) {
@@ -483,32 +505,65 @@ function reserveAsset(r) {
 // Only a pool that holds BOTH native XLM and this exact asset (code + issuer)
 // prices the token. Any other pool in the results is a different market, and
 // reading it reports a zero XLM reserve and a zero price.
-export async function fetchPoolPrice(assetCode, issuer) {
+export async function fetchPoolFor(assetCode, issuer, quote = 'xlm') {
+  const key = quoteReserveKey(quote);
   const data = await horizonJsonSafe(
-    `/liquidity_pools?reserves=native&reserves=${assetCode}:${issuer}&limit=20`
+    `/liquidity_pools?reserves=${key}&reserves=${assetCode}:${issuer}&limit=20`
   );
   const records = data?._embedded?.records || [];
 
   let best = null;
   for (const pool of records) {
     const reserves = pool.reserves || [];
-    const native = reserves.find((r) => reserveAsset(r) === 'native');
-    const token = reserves.find((r) => reserveAsset(r) === `${assetCode}:${issuer}`);
-    if (!native || !token) continue;
-    const xlmReserve = parseFloat(native.amount) || 0;
-    const tokenReserve = parseFloat(token.amount) || 0;
-    if (xlmReserve <= 0 || tokenReserve <= 0) continue;
-    if (!best || xlmReserve > best.xlmReserve) {
-      best = { price: xlmReserve / tokenReserve, xlmReserve, tokenReserve, poolId: pool.id };
+    const quoteSide = reserves.find((r) => reserveAsset(r) === key);
+    const tokenSide = reserves.find((r) => reserveAsset(r) === `${assetCode}:${issuer}`);
+    if (!quoteSide || !tokenSide) continue;
+    const quoteReserve = parseFloat(quoteSide.amount) || 0;
+    const tokenReserve = parseFloat(tokenSide.amount) || 0;
+    if (quoteReserve <= 0 || tokenReserve <= 0) continue;
+    if (!best || quoteReserve > best.quoteReserve) {
+      best = {
+        price: quoteReserve / tokenReserve,
+        quote,
+        quoteReserve,
+        xlmReserve: quoteReserve,
+        tokenReserve,
+        poolId: pool.id,
+      };
     }
   }
   return best;
 }
 
-export async function fetchOrderBook(assetCode, issuer) {
+export function fetchPoolPrice(assetCode, issuer, quote = 'xlm') {
+  return fetchPoolFor(assetCode, issuer, quote);
+}
+
+let rateCache = null;
+
+// How many XLM one USDC buys. Every USDC figure the app shows is converted
+// through this rate so prices, market caps, PnL and rankings share one unit.
+export async function fetchXlmUsdcRate(force = false) {
+  if (!force && rateCache && Date.now() - rateCache.time < CACHE_TTL) return rateCache.rate;
+  let rate = 0;
+  const pool = await fetchPoolFor(USDC_CODE, USDC_ISSUER, 'xlm');
+  if (pool?.price > 0) rate = pool.price;
+  if (!rate) {
+    const book = await fetchOrderBook(USDC_CODE, USDC_ISSUER, 'xlm');
+    rate = book?.bestAsk > 0 ? book.bestAsk : book?.bestBid > 0 ? book.bestBid : 0;
+  }
+  if (rate > 0) rateCache = { time: Date.now(), rate };
+  return rate || rateCache?.rate || 0;
+}
+
+export async function fetchOrderBook(assetCode, issuer, quote = 'xlm') {
   const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+  const buying =
+    quote === 'usdc'
+      ? `buying_asset_type=credit_alphanum4&buying_asset_code=${USDC_CODE}&buying_asset_issuer=${USDC_ISSUER}`
+      : 'buying_asset_type=native';
   const ob = await horizonJsonSafe(
-    `/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`
+    `/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&${buying}`
   );
   if (!ob) return null;
 
@@ -549,8 +604,8 @@ export function keypairFromSecret(secret) {
   return StellarSdk.Keypair.fromSecret(secret);
 }
 
-export async function verifyLaunchProgress({ walletAddress, issuerPublicKey, assetCode, isAutoPool }) {
-  const result = { issuerExists: false, trustlineExists: false, tokensIssued: false, liquidityExists: false };
+export async function verifyLaunchProgress({ walletAddress, issuerPublicKey, assetCode, isAutoPool, quotes = ['xlm'] }) {
+  const result = { issuerExists: false, trustlineExists: false, tokensIssued: false, liquidityExists: false, poolQuotes: [] };
   if (!issuerPublicKey) return result;
 
   try {
@@ -577,17 +632,13 @@ export async function verifyLaunchProgress({ walletAddress, issuerPublicKey, ass
 
   try {
     if (isAutoPool) {
-      const pool = await fetchPoolPrice(assetCode, issuerPublicKey);
-      result.liquidityExists = !!pool;
+      // A dual launch only counts as seeded once every pool it promised exists.
+      const found = await Promise.all(quotes.map((q) => fetchPoolFor(assetCode, issuerPublicKey, q)));
+      result.poolQuotes = quotes.filter((q, i) => !!found[i]);
+      result.liquidityExists = result.poolQuotes.length === quotes.length;
     } else {
-      const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
-      const obRes = await fetch(
-        `${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuerPublicKey}&buying_asset_type=native`
-      ).catch(() => null);
-      if (obRes?.ok) {
-        const ob = await obRes.json();
-        result.liquidityExists = (ob.bids?.length || 0) > 0 || (ob.asks?.length || 0) > 0;
-      }
+      const ob = await fetchOrderBook(assetCode, issuerPublicKey, 'xlm');
+      result.liquidityExists = !!(ob && (ob.askCount > 0 || ob.bidCount > 0));
     }
   } catch {
     /* ignore */
@@ -678,24 +729,53 @@ export function generateStellarToml({ name, code, issuer, description, logoUrl, 
   return lines.join('\n');
 }
 
-export function estimateLaunchCost({ liquidityPercent, rungs = CURVE_PRESETS.slow.rungs, autoPool = false, hasInitialLiquidity = false }) {
+export function estimateLaunchCost({ liquidityPercent, rungs = CURVE_PRESETS.slow.rungs, autoPool = false, hasInitialLiquidity = false, poolCount = 1, needsUsdcTrustline = false }) {
   const baseOps = 4;
   const offerCount = autoPool ? 0 : (liquidityPercent > 0 ? rungs : 0);
-  const poolOps = autoPool || hasInitialLiquidity ? 2 : 0;
-  const operations = baseOps + offerCount + poolOps;
+  // Each pool costs a share trustline plus the deposit itself.
+  const poolOps = (autoPool || hasInitialLiquidity ? 2 : 0) * poolCount;
+  const trustlineOps = needsUsdcTrustline ? 1 : 0;
+  const operations = baseOps + offerCount + poolOps + trustlineOps;
   const feeXlm = (operations * 100) / 1e7;
-  const reserveXlm = offerCount * RESERVE_PER_ENTRY + poolOps * RESERVE_PER_ENTRY;
+  const reserveXlm = (offerCount + poolOps + trustlineOps) * RESERVE_PER_ENTRY;
   const issuerReserveXlm = ISSUER_RESERVE_XLM;
-  return { feeXlm, reserveXlm, issuerReserveXlm, operations, offerCount, poolOps };
+  return { feeXlm, reserveXlm, issuerReserveXlm, operations, offerCount, poolOps, trustlineOps };
 }
 
-export async function fetchAssetStats(assetCode, issuer) {
-  const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+function assetParams(prefix, quote) {
+  if (quote === 'usdc') {
+    return `${prefix}_asset_type=credit_alphanum4&${prefix}_asset_code=${USDC_CODE}&${prefix}_asset_issuer=${USDC_ISSUER}`;
+  }
+  return `${prefix}_asset_type=native`;
+}
 
-  const [holdersData, baseTradesData, counterTradesData] = await Promise.all([
+// Trades for one quote market, whichever side of the pair the token sits on.
+async function fetchQuoteTrades(assetCode, issuer, quote) {
+  const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+  const tokenBase = `base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}`;
+  const tokenCounter = `counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}`;
+
+  const [baseData, counterData] = await Promise.all([
+    horizonJsonSafe(`/trades?${tokenBase}&${assetParams('counter', quote)}&limit=50&order=desc`),
+    horizonJsonSafe(`/trades?${assetParams('base', quote)}&${tokenCounter}&limit=50&order=desc`),
+  ]);
+
+  const seen = new Set();
+  const out = [];
+  for (const data of [baseData, counterData]) {
+    for (const r of data?._embedded?.records || []) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push({ ...r, quote });
+    }
+  }
+  return out;
+}
+
+export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0 } = {}) {
+  const [holdersData, ...tradeSets] = await Promise.all([
     horizonJsonSafe(`/accounts?asset=${assetCode}:${issuer}&limit=200`),
-    horizonJsonSafe(`/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=50&order=desc`),
-    horizonJsonSafe(`/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`),
+    ...quotes.map((q) => fetchQuoteTrades(assetCode, issuer, q)),
   ]);
 
   // Holders are wallets with a positive balance. The issuer and empty trustlines
@@ -710,35 +790,41 @@ export async function fetchAssetStats(assetCode, issuer) {
     holders++;
   }
 
-  // Pool fills and offer fills both count as trades — dedupe the two queries by id.
-  const seen = new Set();
-  const allTrades = [];
-  for (const data of [baseTradesData, counterTradesData]) {
-    for (const r of data?._embedded?.records || []) {
-      if (seen.has(r.id)) continue;
-      seen.add(r.id);
-      allTrades.push(r);
-    }
-  }
+  // Each quote was already deduped on its own; a trade only appears in the set
+  // of the market it actually filled in, so the sets just concatenate.
+  const allTrades = tradeSets.flat();
   allTrades.sort((a, b) => new Date(b.ledger_close_time) - new Date(a.ledger_close_time));
 
-  // XLM per token for one trade, whichever way round the pair is quoted.
+  const rateOf = (quote) => (quote === 'usdc' ? xlmPerUsdc : 1);
+
+  // XLM per token for one trade, whichever way round the pair is quoted. USDC
+  // fills go through the live rate so a dual-pool token keeps one price series.
   const tradePrice = (t) => {
     const n = parseFloat(t.price?.n);
     const d = parseFloat(t.price?.d);
     if (!n || !d) return 0;
     const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
-    return isTokenBase ? n / d : d / n;
+    return (isTokenBase ? n / d : d / n) * rateOf(t.quote);
   };
 
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
 
-  // Volume is the XLM leg, counted once per trade.
+  // Volume is the quote leg, always counted in XLM.
+  const quoteLegXlm = (t) => {
+    if (t.quote === 'usdc') {
+      const isUsdcBase = t.base_asset_code === USDC_CODE && t.base_asset_issuer === USDC_ISSUER;
+      const leg = parseFloat(isUsdcBase ? t.base_amount : t.counter_amount) || 0;
+      return leg * rateOf('usdc');
+    }
+    if (t.counter_asset_type === 'native') return parseFloat(t.counter_amount) || 0;
+    if (t.base_asset_type === 'native') return parseFloat(t.base_amount) || 0;
+    return 0;
+  };
+
   let volume24h = 0;
   for (const trade of allTrades) {
     if (new Date(trade.ledger_close_time).getTime() < oneDayAgo) continue;
-    if (trade.counter_asset_type === 'native') volume24h += parseFloat(trade.counter_amount) || 0;
-    else if (trade.base_asset_type === 'native') volume24h += parseFloat(trade.base_amount) || 0;
+    volume24h += quoteLegXlm(trade);
   }
 
   // Oldest → newest, for the chart.
@@ -773,42 +859,32 @@ export async function fetchAssetStats(assetCode, issuer) {
   };
 }
 
-export function formatOnChainTrades(trades, assetCode, issuer, maxCount = 20) {
+export function formatOnChainTrades(trades, assetCode, issuer, maxCount = 20, xlmPerUsdc = 0) {
+  const rateOf = (quote) => (quote === 'usdc' ? xlmPerUsdc : 1);
   return trades.slice(0, maxCount).map((t) => {
-    let xlmAmount = 0;
-    let tokenAmount = 0;
-    let isBuy = false;
-
-    if (t.counter_asset_type === 'native') {
-      xlmAmount = parseFloat(t.counter_amount);
-      tokenAmount = parseFloat(t.base_amount);
-      isBuy = true;
-    } else if (t.base_asset_type === 'native') {
-      xlmAmount = parseFloat(t.base_amount);
-      tokenAmount = parseFloat(t.counter_amount);
-      isBuy = false;
-    }
-
-    let tradePrice = 0;
     const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
-    tradePrice = isTokenBase
-      ? parseFloat(t.price.n) / parseFloat(t.price.d)
-      : parseFloat(t.price.d) / parseFloat(t.price.n);
+    const tokenAmount = parseFloat(isTokenBase ? t.base_amount : t.counter_amount) || 0;
+    const quoteAmount = parseFloat(isTokenBase ? t.counter_amount : t.base_amount) || 0;
+    const n = parseFloat(t.price?.n);
+    const d = parseFloat(t.price?.d);
+    const inQuote = n && d ? (isTokenBase ? n / d : d / n) : 0;
+    const rate = rateOf(t.quote);
 
     return {
-      type: isBuy ? 'buy' : 'sell',
-      amount_xlm: xlmAmount,
+      type: isTokenBase ? 'buy' : 'sell',
+      amount_xlm: quoteAmount * rate,
       tokens: tokenAmount,
-      price: tradePrice,
+      price: inQuote * rate,
+      quote: t.quote || 'xlm',
       time: t.ledger_close_time,
     };
   });
 }
 
-export function estimateTradeCost(side) {
-  const ops = side === 'buy' ? 2 : 1;
+export function estimateTradeCost(side, { needsUsdcTrustline = false } = {}) {
+  const ops = (side === 'buy' ? 2 : 1) + (needsUsdcTrustline ? 1 : 0);
   const feeXlm = (ops * 100) / 1e7;
-  const reserveXlm = side === 'buy' ? RESERVE_PER_ENTRY : 0;
+  const reserveXlm = (side === 'buy' ? RESERVE_PER_ENTRY : 0) + (needsUsdcTrustline ? RESERVE_PER_ENTRY : 0);
   return { feeXlm, reserveXlm, operations: ops };
 }
 
