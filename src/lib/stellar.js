@@ -34,7 +34,7 @@ function assetSortKey(asset) {
 function orderedPoolPair(quoteSide, tokenSide) {
   const quoteFirst = assetSortKey(quoteSide) <= assetSortKey(tokenSide);
   const [a, b] = quoteFirst ? [quoteSide, tokenSide] : [tokenSide, quoteSide];
-  return { poolAsset: new StellarSdk.LiquidityPoolAsset(a, b), quoteFirst };
+  return { poolAsset: new StellarSdk.LiquidityPoolAsset(a, b, StellarSdk.LiquidityPoolFeeV18), quoteFirst };
 }
 
 export const CURVE_PRESETS = {
