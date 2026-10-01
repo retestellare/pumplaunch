@@ -1,5 +1,3 @@
-import { shortAddr } from '@/lib/profiles';
-
 const FALLBACK_COLORS = ['#00ff88', '#3b82f6', '#a855f7', '#ec4899', '#f59e0b', '#10b981'];
 
 export default function Avatar({ profile, address, size = 36 }) {

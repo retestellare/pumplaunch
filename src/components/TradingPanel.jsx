@@ -5,7 +5,6 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   loadAccount,
   parseBalances,
-  hasTrustline,
   buildBuyTransaction,
   buildSellTransaction,
   buildLimitBuyTransaction,

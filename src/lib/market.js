@@ -66,12 +66,12 @@ export async function fetchMarkets(assetCode, issuer, { quotes = ['xlm'], xlmPer
       return [q, resolveMarket({ quote: q, pool, book, xlmPerUsdc })];
     })
   );
-  return combineMarkets(Object.fromEntries(entries));
+  return combineMarkets(Object.fromEntries(entries), xlmPerUsdc);
 }
 
 // The single view a screen renders: cheapest way in, best way out, plus the
 // per-quote detail the trading panel switches between.
-export function combineMarkets(markets) {
+export function combineMarkets(markets, xlmPerUsdc = 0) {
   const list = Object.values(markets);
   let bestBuy = null;
   let bestSell = null;

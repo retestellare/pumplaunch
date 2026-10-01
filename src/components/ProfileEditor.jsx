@@ -3,7 +3,6 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveProfile } from '@/lib/profiles';
-import Avatar from '@/components/Avatar';
 import { X, ImagePlus, Loader2 } from 'lucide-react';
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
