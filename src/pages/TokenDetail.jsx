@@ -7,10 +7,11 @@ import SimpleChart from '@/components/SimpleChart';
 import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
 import BottomNav from '@/components/BottomNav';
-import { fetchAssetStats, formatOnChainTrades } from '@/lib/stellar';
-import { fetchMarket, ROUTE_LABEL } from '@/lib/market';
+import { formatOnChainTrades } from '@/lib/stellar';
+import { fetchTokenMarket, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
+import PoolBadge from '@/components/PoolBadge';
 
 function fmtXlm(n, d = 2) {
   if (n == null || isNaN(n)) return '—';
@@ -24,6 +25,7 @@ export default function TokenDetail() {
   const [stats, setStats] = useState(null);
   const [market, setMarket] = useState(null);
   const [liveTrades, setLiveTrades] = useState([]);
+  const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
   const [ordersKey, setOrdersKey] = useState(0);
 
   const load = async () => {
@@ -36,13 +38,12 @@ export default function TokenDetail() {
 
     if (!t.issuer || !t.asset_code) return;
 
-    const [s, m] = await Promise.all([
-      fetchAssetStats(t.asset_code, t.issuer),
-      fetchMarket(t.asset_code, t.issuer, { isAutoPool: t.is_auto_pool }),
-    ]);
+    // One call resolves every pool the token has, all normalised to XLM.
+    const { stats: s, market: m, xlmPerUsdc: rate } = await fetchTokenMarket(t);
     setStats(s);
     setMarket(m);
-    setLiveTrades(formatOnChainTrades(s.trades, t.asset_code, t.issuer));
+    setXlmPerUsdc(rate);
+    setLiveTrades(formatOnChainTrades(s.trades, t.asset_code, t.issuer, 20, rate));
   };
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export default function TokenDetail() {
           <div className="flex items-center gap-2">
             <TokenIcon token={token} size={28} />
             <span className="font-bold">${token.symbol}</span>
+            <PoolBadge token={token} />
           </div>
         </div>
       </header>
@@ -129,7 +131,7 @@ export default function TokenDetail() {
         <TokenInfoCards token={token} stats={stats} market={market} />
 
         {token.is_auto_pool && market && !market.pool && <SeedPoolPanel token={token} onSeeded={load} />}
-        <TradingPanel token={token} market={market} onTrade={load} />
+        <TradingPanel token={token} market={market} xlmPerUsdc={xlmPerUsdc} onTrade={load} />
         <OpenOrders token={token} refreshKey={ordersKey} />
 
         <div className="bg-[#141518] rounded-2xl p-4">

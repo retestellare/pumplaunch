@@ -30,7 +30,13 @@ import {
   fetchTokenMetadata,
   fetchOrderBook,
   fetchPoolPrice,
+  fetchPoolFor,
+  fetchXlmUsdcRate,
+  planPoolLaunch,
+  USDC_CODE,
+  USDC_ISSUER,
 } from '@/lib/stellar';
+import { POOL_TYPES, poolsForType } from '@/lib/pools';
 import {
   loadAttempt,
   saveAttempt,
@@ -66,17 +72,22 @@ function stepLabel(id) {
   return STEP_LABELS[id] || id || 'unknown step';
 }
 
-function analyzeStall(attempt, availableXlm) {
+function analyzeStall(attempt, availableXlm, xlmPerUsdc = 0) {
   const curvePreset = CURVE_PRESETS[attempt.curve] || CURVE_PRESETS.slow;
+  const plan = planPoolLaunch({
+    poolType: attempt.pool_type || 'xlm',
+    input: attempt.initial_liquidity,
+    xlmPerUsdc,
+  });
   const cost = estimateLaunchCost({
     liquidityPercent: attempt.liquidity,
     rungs: curvePreset.rungs,
     autoPool: attempt.auto_pool,
     hasInitialLiquidity: !!(attempt.initial_liquidity && parseFloat(attempt.initial_liquidity) >= 10),
+    poolCount: plan.quotes.length,
+    needsUsdcTrustline: plan.quotes.includes('usdc'),
   });
-  const poolDeposit = attempt.auto_pool || attempt.initial_liquidity
-    ? parseFloat(attempt.initial_liquidity) || 0
-    : 0;
+  const poolDeposit = parseFloat(plan.deposits.xlm) || 0;
   const issuerReserve = attempt.issuer_public_key ? 0 : cost.issuerReserveXlm;
   const required = issuerReserve + poolDeposit + cost.feeXlm + cost.reserveXlm;
   const insufficient = availableXlm != null && availableXlm < required;
@@ -102,6 +113,10 @@ export default function LaunchToken() {
   const [tomlText, setTomlText] = useState('');
   const [tokenId, setTokenId] = useState(null);
   const [availableXlm, setAvailableXlm] = useState(null);
+  const [availableUsdc, setAvailableUsdc] = useState(null);
+  const [usdcTrustline, setUsdcTrustline] = useState(false);
+  const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
+  const [poolType, setPoolType] = useState('xlm');
   const [attempt, setAttempt] = useState(null);
   const [stepStatuses, setStepStatuses] = useState({});
   const [waiting, setWaiting] = useState(false);
@@ -130,9 +145,21 @@ export default function LaunchToken() {
         const account = await loadAccount(wallet.address);
         if (!active) return;
         setAvailableXlm(account ? parseBalances(account).availableXlm : 0);
+        const usd = (account?.balances || []).find(
+          (b) => b.asset_code === USDC_CODE && b.asset_issuer === USDC_ISSUER
+        );
+        setAvailableUsdc(usd ? parseFloat(usd.balance) : 0);
+        setUsdcTrustline(!!usd);
       } catch {
-        if (active) setAvailableXlm(0);
+        if (active) {
+          setAvailableXlm(0);
+          setAvailableUsdc(0);
+        }
       }
+    })();
+    (async () => {
+      const rate = await fetchXlmUsdcRate();
+      if (active) setXlmPerUsdc(rate);
     })();
     return () => {
       active = false;
@@ -224,6 +251,7 @@ export default function LaunchToken() {
     const homeDomain = customDomain || HOME_DOMAIN;
     store.symbol = sym;
     store.custom_domain = customDomain;
+    store.pool_type = store.pool_type || 'xlm';
 
     const setStage = (stepId, label) => {
       store.step = stepId;
@@ -259,10 +287,21 @@ export default function LaunchToken() {
         }
       }
 
+      const launchQuotes = poolsForType(store.pool_type);
+      const poolRate = launchQuotes.includes('usdc') ? await fetchXlmUsdcRate() : 0;
+      const launchPlan = planPoolLaunch({
+        poolType: store.pool_type,
+        input: store.initial_liquidity,
+        xlmPerUsdc: poolRate,
+      });
+      if (store.auto_pool && launchQuotes.includes('usdc') && !(poolRate > 0)) {
+        throw new Error('Could not read the XLM/USDC rate just now. Try again in a moment.');
+      }
+
       const supply = store.reused_asset
         ? parseFloat(store.supply) || 0
         : store.auto_pool
-        ? parseFloat(store.initial_liquidity) / BASE_PRICE
+        ? launchPlan.supply
         : parseFloat(store.supply);
       if (!store.reused_asset && (!supply || isNaN(supply) || supply <= 0)) {
         throw new Error('Invalid supply. Enter a valid total supply and try again.');
@@ -383,20 +422,34 @@ export default function LaunchToken() {
       if (store.reused_asset) {
         setStepStatus('liquidity', 'done');
       } else {
-        const p3 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool });
+        const p3 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool, quotes: launchQuotes });
         if (!p3.liquidityExists) {
           setWaiting(true);
           try {
             if (store.auto_pool) {
-              const xlmAmount = parseFloat(store.initial_liquidity);
-              const buildPoolTx = async () => {
-                const userAccount = await loadAccount(wallet.address);
-                return buildPoolSetupTransaction({ sourceAccount: userAccount, assetCode: sym, issuer: store.issuer_public_key, xlmAmount, tokenAmount: supply });
-              };
-              await submitWithRetry(buildPoolTx, signAndSubmit, {
-                onRetry: (i, max) => { setRetrying(true); setStage('liquidity', `Retrying (${i}/${max})…`); },
-                verify: async () => !!(await fetchPoolPrice(sym, store.issuer_public_key)),
-              });
+              // Dual launches seed one pool per quote, skipping any already live,
+              // so a resume picks up exactly where it stopped.
+              for (const q of launchPlan.quotes) {
+                if (p3.poolQuotes?.includes(q)) continue;
+                const label = q.toUpperCase();
+                setStage('liquidity', launchPlan.quotes.length > 1 ? `Seeding ${label} pool…` : 'Seeding liquidity pool…');
+                const buildPoolTx = async () => {
+                  const userAccount = await loadAccount(wallet.address);
+                  return buildPoolSetupTransaction({
+                    sourceAccount: userAccount,
+                    assetCode: sym,
+                    issuer: store.issuer_public_key,
+                    quote: q,
+                    quoteAmount: launchPlan.deposits[q],
+                    tokenAmount: launchPlan.tokensByQuote[q],
+                  });
+                };
+                await submitWithRetry(buildPoolTx, signAndSubmit, {
+                  onRetry: (i, max) => { setRetrying(true); setStage('liquidity', `Retrying ${label} pool (${i}/${max})…`); },
+                  verify: async () => !!(await fetchPoolFor(sym, store.issuer_public_key, q)),
+                });
+                saveAttempt(store);
+              }
             } else {
               const liquidityAmount = (supply * store.liquidity) / 100;
               if (liquidityAmount > 0) {
@@ -494,6 +547,7 @@ export default function LaunchToken() {
             change_24h: 0,
             is_graduated: true,
             is_auto_pool: store.auto_pool,
+            pools: poolsForType(store.pool_type),
           };
           let created;
           try {
@@ -562,6 +616,7 @@ export default function LaunchToken() {
       auto_pool: autoPool,
       initial_liquidity: initialLiquidity,
       curve,
+      pool_type: poolType,
       image_url: null,
       token_id: null,
       issuer_public_key: null,
@@ -603,24 +658,27 @@ export default function LaunchToken() {
   };
 
   const curvePreset = CURVE_PRESETS[curve];
-  const derivedSupply = parseFloat(initialLiquidity) > 0 ? parseFloat(initialLiquidity) / BASE_PRICE : 0;
+  const plan = planPoolLaunch({ poolType, input: initialLiquidity, xlmPerUsdc });
+  const poolCount = plan.quotes.length;
+  const needsUsdc = plan.quotes.includes('usdc');
+  const derivedSupply = plan.supply;
   const cost = estimateLaunchCost({
     liquidityPercent: liquidity,
     rungs: curvePreset.rungs,
     autoPool,
     hasInitialLiquidity: !!(initialLiquidity && parseFloat(initialLiquidity) >= 10),
+    poolCount,
+    needsUsdcTrustline: needsUsdc && !usdcTrustline,
   });
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
-  const poolDeposit = autoPool
-    ? parseFloat(initialLiquidity) || 0
-    : initialLiquidity
-    ? parseFloat(initialLiquidity) || 0
-    : 0;
-  const requiredXlm = cost.issuerReserveXlm + poolDeposit + cost.feeXlm + cost.reserveXlm;
-  const balanceOk = availableXlm === null || availableXlm >= requiredXlm;
+  const requiredXlm = cost.issuerReserveXlm + (parseFloat(plan.deposits.xlm) || 0) + cost.feeXlm + cost.reserveXlm;
+  const requiredUsdc = parseFloat(plan.deposits.usdc) || 0;
+  const xlmOk = availableXlm === null || availableXlm >= requiredXlm;
+  const usdcOk = !needsUsdc || availableUsdc === null || availableUsdc >= requiredUsdc;
+  const balanceOk = xlmOk && usdcOk;
   const blocked = !!stalledAttempt && !stallLoading;
-  const stallAnalysis = stalledAttempt ? analyzeStall(stalledAttempt, availableXlm) : null;
-  const progressAnalysis = attempt ? analyzeStall(attempt, availableXlm) : null;
+  const stallAnalysis = stalledAttempt ? analyzeStall(stalledAttempt, availableXlm, xlmPerUsdc) : null;
+  const progressAnalysis = attempt ? analyzeStall(attempt, availableXlm, xlmPerUsdc) : null;
   const showResume = attempt && (stepStatuses[attempt.step] === 'failed' || !!attempt.error);
 
   return (
@@ -663,6 +721,37 @@ export default function LaunchToken() {
               <p className="text-xs text-white/50">You have an unfinished launch above. Resume or discard it before starting a new one.</p>
             </div>
           )}
+
+          <div>
+            <label className="text-xs text-white/40 mb-2 block">Launch Type</label>
+            <div className="space-y-2">
+              {POOL_TYPES.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setPoolType(opt.value);
+                    if (opt.value !== 'xlm') setAutoPool(true);
+                  }}
+                  disabled={blocked}
+                  className={`w-full text-left px-4 py-3 rounded-xl border transition disabled:opacity-40 ${
+                    poolType === opt.value ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm">{opt.label}</span>
+                    {poolType === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
+                  </div>
+                  <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+            {poolType !== 'xlm' && (
+              <p className="text-[10px] text-white/30 mt-1">
+                USDC markets launch as liquidity pools with the full supply seeded. 1 USDC ≈{' '}
+                {xlmPerUsdc > 0 ? xlmPerUsdc.toFixed(2) : '—'} XLM.
+              </p>
+            )}
+          </div>
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
             <div>
@@ -755,6 +844,14 @@ export default function LaunchToken() {
 
           <div>
             <label className="text-xs text-white/40 mb-2 block">Supply Distribution</label>
+            {poolType !== 'xlm' ? (
+              <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3">
+                <p className="text-xs text-white/60">
+                  100% of the supply is seeded into {poolCount === 2 ? 'both liquidity pools' : 'the liquidity pool'} at
+                  launch — USDC markets are pool-only.
+                </p>
+              </div>
+            ) : (
             <div className="space-y-2">
               {DISTRIBUTION_OPTIONS.map((opt) => {
                 const selected = opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value;
@@ -783,11 +880,13 @@ export default function LaunchToken() {
                 );
               })}
             </div>
+            )}
           </div>
 
           <div>
             <label className="text-xs text-white/40 mb-2 block">
-              Initial Liquidity (XLM){autoPool && <span className="text-[#00ff88]"> · required</span>}
+              Initial Liquidity ({poolType === 'usdc' ? 'USDC' : 'XLM'})
+              {autoPool && <span className="text-[#00ff88]"> · required</span>}
             </label>
             <input
               type="number"
@@ -797,7 +896,17 @@ export default function LaunchToken() {
               disabled={blocked}
               className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
             />
-            <p className="text-[10px] text-white/30 mt-1">Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.</p>
+            <p className="text-[10px] text-white/30 mt-1">
+              {poolType === 'usdc'
+                ? 'Minimum 10 USDC to seed the pool.'
+                : 'Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.'}
+            </p>
+            {poolType === 'dual' && (
+              <p className="text-[10px] text-white/40 mt-1">
+                Needs {(parseFloat(initialLiquidity) / (xlmPerUsdc || 1) || 0).toFixed(2)} USDC for the second pool
+                {usdcTrustline ? '' : ' — the USDC trustline is added with your launch'}.
+              </p>
+            )}
           </div>
 
           {!autoPool && (
@@ -832,18 +941,38 @@ export default function LaunchToken() {
 
           {wallet && availableXlm !== null && !balanceOk && !blocked && (
             <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl p-3 space-y-1.5">
-              <p className="text-xs text-[#ff3b5c] font-bold">Insufficient XLM balance</p>
-              <div className="flex justify-between text-xs">
-                <span className="text-white/40">Available</span>
-                <span className="text-white/80">{availableXlm.toFixed(2)} XLM</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-white/40">Required</span>
-                <span className="text-white/80">~{requiredXlm.toFixed(2)} XLM</span>
-              </div>
-              <p className="text-[10px] text-white/30 mt-1">
-                Fund your wallet with at least {(requiredXlm - availableXlm).toFixed(2)} more XLM on Stellar mainnet.
-              </p>
+              <p className="text-xs text-[#ff3b5c] font-bold">Insufficient balance</p>
+              {!xlmOk && (
+                <>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40">XLM available</span>
+                    <span className="text-white/80">{availableXlm.toFixed(2)} XLM</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40">XLM required</span>
+                    <span className="text-white/80">~{requiredXlm.toFixed(2)} XLM</span>
+                  </div>
+                  <p className="text-[10px] text-white/30 mt-1">
+                    Fund your wallet with at least {(requiredXlm - availableXlm).toFixed(2)} more XLM on Stellar mainnet.
+                  </p>
+                </>
+              )}
+              {!usdcOk && availableUsdc != null && (
+                <>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40">USDC available</span>
+                    <span className="text-white/80">{availableUsdc.toFixed(2)} USDC</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40">USDC required</span>
+                    <span className="text-white/80">~{requiredUsdc.toFixed(2)} USDC</span>
+                  </div>
+                  <p className="text-[10px] text-white/30 mt-1">
+                    Add {usdcTrustline ? '' : 'a USDC trustline and '}at least{' '}
+                    {(requiredUsdc - availableUsdc).toFixed(2)} more USDC to your wallet.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -857,7 +986,7 @@ export default function LaunchToken() {
               : !wallet
               ? 'Connect Wallet First'
               : wallet && availableXlm !== null && !balanceOk
-              ? 'Insufficient XLM'
+              ? 'Insufficient balance'
               : 'Review Launch'}
           </button>
         </div>
@@ -871,11 +1000,23 @@ export default function LaunchToken() {
               <Row label="Issuer" value="Auto-generated · Locked" />
               <Row label="Home Domain" value={effectiveDomain} />
               <Row label="Total Supply" value={(autoPool ? Math.floor(derivedSupply) : parseFloat(form.supply)).toLocaleString()} />
+              <Row
+                label="Launch Type"
+                value={POOL_TYPES.find((p) => p.value === poolType)?.label || 'Single Pool (XLM)'}
+              />
               {autoPool ? (
                 <>
                   <Row label="Mode" value="100% Auto-Pool" />
-                  <Row label="Initial Liquidity" value={`${initialLiquidity} XLM`} />
-                  <Row label="Market" value="Stellar Liquidity Pool" />
+                  {plan.deposits.xlm > 0 && (
+                    <Row label="Initial Liquidity (XLM)" value={`${plan.deposits.xlm} XLM`} />
+                  )}
+                  {plan.deposits.usdc > 0 && (
+                    <Row label="Initial Liquidity (USDC)" value={`${plan.deposits.usdc.toFixed(2)} USDC`} />
+                  )}
+                  <Row
+                    label="Market"
+                    value={poolCount === 2 ? 'Both Stellar Liquidity Pools' : 'Stellar Liquidity Pool'}
+                  />
                 </>
               ) : (
                 <>

@@ -27,6 +27,8 @@ export default function TokenInfoCards({ token, stats, market }) {
 
   const pool = market?.pool || null;
   const book = market?.book || null;
+  const poolQuotes = market?.quotes || [];
+  const poolQuoteLabel = pool?.quote === 'usdc' ? 'USDC' : 'XLM';
   const buyPrice = market?.buyPrice > 0 ? market.buyPrice : null;
   const sellPrice = market?.sellPrice > 0 ? market.sellPrice : null;
   const hasBook = !!(book && (book.askCount > 0 || book.bidCount > 0));
@@ -46,6 +48,10 @@ export default function TokenInfoCards({ token, stats, market }) {
           sub={change24h == null ? 'Needs two fills in 24h' : null}
         />
         <Row label="Launch Method" value={token.is_auto_pool ? 'Auto-Pool' : 'Bonding Curve'} />
+        <Row
+          label="Markets"
+          value={poolQuotes.length ? poolQuotes.map((q) => (q === 'usdc' ? 'USDC' : 'XLM')).join(' + ') : '—'}
+        />
         <Row label="Total Supply" value={`${fmt(supply, 0)} ${token.symbol}`} />
         <Row label="Liquidity Allocated" value={`${liqPct}%`} />
         {!token.is_auto_pool && (
@@ -84,9 +90,12 @@ export default function TokenInfoCards({ token, stats, market }) {
             {pool && (
               <>
                 <div className="border-t border-white/5 pt-3 mt-1 space-y-3">
-                  <Row label="XLM Reserve" value={`${fmt(pool.xlmReserve, 2)} XLM`} />
+                  <Row label={`${poolQuoteLabel} Reserve`} value={`${fmt(pool.quoteReserve, 2)} ${poolQuoteLabel}`} />
                   <Row label={`${token.symbol} Reserve`} value={fmt(pool.tokenReserve, 0)} />
-                  <Row label="Pool Price" value={`${pool.price.toFixed(8)} XLM`} />
+                  <Row
+                    label="Pool Price"
+                    value={market.poolPriceXlm ? `${market.poolPriceXlm.toFixed(8)} XLM` : '—'}
+                  />
                 </div>
               </>
             )}

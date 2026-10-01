@@ -1,24 +1,34 @@
 import { useState, useEffect } from 'react';
 import { useWallet } from '@/lib/wallet';
-import { fetchXlmBalance } from '@/lib/stellar';
+import { loadAccount, parseBalances } from '@/lib/stellar';
+import { USDC_CODE, USDC_ISSUER } from '@/lib/pools';
 
 export default function WalletButton() {
   const { wallet, connect, disconnect, connecting } = useWallet();
-  const [xlm, setXlm] = useState(null);
+  const [balances, setBalances] = useState(null);
 
   useEffect(() => {
     if (!wallet?.address) {
-      setXlm(null);
+      setBalances(null);
       return;
     }
     let active = true;
     const refresh = () =>
-      fetchXlmBalance(wallet.address)
-        .then((b) => {
-          if (active) setXlm(b);
+      loadAccount(wallet.address)
+        .then((account) => {
+          if (!active) return;
+          if (!account) {
+            setBalances({ xlm: 0, usdc: 0 });
+            return;
+          }
+          const { xlm } = parseBalances(account);
+          const tl = (account.balances || []).find(
+            (b) => b.asset_code === USDC_CODE && b.asset_issuer === USDC_ISSUER
+          );
+          setBalances({ xlm, usdc: tl ? parseFloat(tl.balance) : 0 });
         })
         .catch(() => {
-          if (active) setXlm(0);
+          if (active) setBalances({ xlm: 0, usdc: 0 });
         });
     refresh();
     const timer = setInterval(refresh, 20000);
@@ -44,9 +54,16 @@ export default function WalletButton() {
   return (
     <button
       onClick={disconnect}
-      className="flex flex-col items-end leading-tight px-3 py-1 rounded-lg bg-white/5 text-white/80"
+      className="flex flex-col items-end leading-tight px-3 py-1 rounded-lg bg-white/5"
     >
-      <span className="text-sm font-bold text-[#00ff88]">{xlm != null ? xlm.toFixed(2) : '…'} XLM</span>
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-sm font-bold text-[#00ff88]">
+          {balances ? balances.xlm.toFixed(2) : '…'} XLM
+        </span>
+        <span className="text-xs font-bold text-[#3b82f6]">
+          {balances ? balances.usdc.toFixed(2) : '…'} USDC
+        </span>
+      </span>
       <span className="text-[10px] text-white/40">{short}</span>
     </button>
   );

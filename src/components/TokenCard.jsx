@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import TokenIcon from './TokenIcon';
+import PoolBadge from './PoolBadge';
 
 export default function TokenCard({ token, rank }) {
   const change = token.change_24h;
@@ -17,6 +18,7 @@ export default function TokenCard({ token, rank }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="font-semibold text-sm truncate">${token.symbol}</span>
+          <PoolBadge token={token} />
           {token.is_graduated && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00ff88]/10 text-[#00ff88] font-bold">GRAD</span>
           )}

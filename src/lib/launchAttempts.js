@@ -51,6 +51,7 @@ async function doSave(attempt) {
     custom_domain: attempt.custom_domain || attempt.customDomain || '',
     liquidity: attempt.liquidity ?? 100,
     auto_pool: attempt.auto_pool ?? attempt.autoPool ?? false,
+    pool_type: attempt.pool_type || attempt.poolType || 'xlm',
     initial_liquidity: attempt.initial_liquidity ?? attempt.initialLiquidity ?? 0,
     curve: attempt.curve || 'slow',
     image_url: attempt.image_url || attempt.imageUrl || '',

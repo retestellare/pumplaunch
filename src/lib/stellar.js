@@ -1,6 +1,6 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { StellarWalletsKit, ensureKitInit } from './walletKit';
-import { USDC_CODE, USDC_ISSUER } from './pools';
+import { USDC_CODE, USDC_ISSUER, poolsForType, toXlm } from './pools';
 
 export { USDC_CODE, USDC_ISSUER };
 
@@ -770,6 +770,37 @@ async function fetchQuoteTrades(assetCode, issuer, quote) {
     }
   }
   return out;
+}
+
+// What a pool launch needs: how much of each quote asset, and how much supply
+// the pools absorb. Every pool prices the token at BASE_PRICE, so a dual launch
+// cannot be arbitraged between its two markets.
+export function planPoolLaunch({ poolType = 'xlm', input, xlmPerUsdc = 0 }) {
+  const amount = parseFloat(input) || 0;
+  const quotes = poolsForType(poolType);
+  const usable = amount > 0 && (!quotes.includes('usdc') || xlmPerUsdc > 0);
+
+  const deposits = {};
+  if (usable) {
+    if (poolType === 'usdc') {
+      deposits.usdc = amount;
+    } else if (poolType === 'dual') {
+      deposits.xlm = amount;
+      deposits.usdc = amount / xlmPerUsdc;
+    } else {
+      deposits.xlm = amount;
+    }
+  }
+
+  const tokensByQuote = {};
+  let xlmValue = 0;
+  for (const [q, v] of Object.entries(deposits)) {
+    const inXlm = toXlm(v, q, xlmPerUsdc);
+    xlmValue += inXlm;
+    tokensByQuote[q] = inXlm / BASE_PRICE;
+  }
+
+  return { quotes, deposits, tokensByQuote, xlmValue, supply: xlmValue / BASE_PRICE };
 }
 
 export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0 } = {}) {

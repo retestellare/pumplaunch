@@ -1,4 +1,6 @@
 import { mapLimit } from '@/lib/concurrency';
+import { fetchXlmUsdcRate } from '@/lib/stellar';
+import { tokenPools, toXlm, USDC_CODE, USDC_ISSUER } from '@/lib/pools';
 
 const HORIZON_URL = 'https://horizon.stellar.org';
 const TRADE_CONCURRENCY = 6;
@@ -6,49 +8,70 @@ const TRADE_CONCURRENCY = 6;
 // Cost basis below this is dust — a percentage built on it says nothing.
 const MIN_SPEND_XLM = 0.01;
 
-export async function fetchTokenTrades(assetCode, issuer) {
+function assetParams(prefix, quote) {
+  if (quote === 'usdc') {
+    return `${prefix}_asset_type=credit_alphanum4&${prefix}_asset_code=${USDC_CODE}&${prefix}_asset_issuer=${USDC_ISSUER}`;
+  }
+  return `${prefix}_asset_type=native`;
+}
+
+async function fetchQuoteTrades(assetCode, issuer, quote) {
   const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+  const tokenBase = `base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}`;
+  const tokenCounter = `counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}`;
+
   const [baseRes, counterRes] = await Promise.all([
-    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=50&order=desc`).catch(() => null),
-    fetch(`${HORIZON_URL}/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?${tokenBase}&${assetParams('counter', quote)}&limit=50&order=desc`).catch(() => null),
+    fetch(`${HORIZON_URL}/trades?${assetParams('base', quote)}&${tokenCounter}&limit=50&order=desc`).catch(() => null),
   ]);
+
   const seen = new Set();
   const trades = [];
-  if (baseRes?.ok) {
-    const data = await baseRes.json();
+  for (const res of [baseRes, counterRes]) {
+    if (!res?.ok) continue;
+    const data = await res.json();
     for (const r of data._embedded?.records || []) {
-      if (!seen.has(r.id)) { seen.add(r.id); trades.push(r); }
-    }
-  }
-  if (counterRes?.ok) {
-    const data = await counterRes.json();
-    for (const r of data._embedded?.records || []) {
-      if (!seen.has(r.id)) { seen.add(r.id); trades.push(r); }
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      trades.push({ ...r, quote });
     }
   }
   return trades;
 }
 
+// Every market a token trades in, so a USDC fill counts like an XLM one.
+export async function fetchTokenTrades(assetCode, issuer, quotes = ['xlm']) {
+  const sets = await Promise.all(quotes.map((q) => fetchQuoteTrades(assetCode, issuer, q)));
+  return sets.flat();
+}
+
 async function fetchAllTrades(tokens) {
   const results = await mapLimit(tokens, TRADE_CONCURRENCY, (t) =>
-    t?.issuer && t?.asset_code ? fetchTokenTrades(t.asset_code, t.issuer) : []
+    t?.issuer && t?.asset_code ? fetchTokenTrades(t.asset_code, t.issuer, tokenPools(t)) : []
   );
   return tokens.map((t, i) => ({ token: t, trades: results[i] || [] }));
 }
 
-// Which side of a trade paid XLM and which side received it.
+// Which side of a trade paid the quote asset and which side received it.
 function sides(tr) {
-  if (tr.counter_asset_type === 'native') {
+  const quoteIsCounter = tr.quote === 'usdc'
+    ? tr.counter_asset_code === USDC_CODE && tr.counter_asset_issuer === USDC_ISSUER
+    : tr.counter_asset_type === 'native';
+  const quoteIsBase = tr.quote === 'usdc'
+    ? tr.base_asset_code === USDC_CODE && tr.base_asset_issuer === USDC_ISSUER
+    : tr.base_asset_type === 'native';
+
+  if (quoteIsCounter) {
     return {
-      xlm: parseFloat(tr.counter_amount) || 0,
+      quote: parseFloat(tr.counter_amount) || 0,
       tokens: parseFloat(tr.base_amount) || 0,
       buyer: tr.counter_account,
       seller: tr.base_account,
     };
   }
-  if (tr.base_asset_type === 'native') {
+  if (quoteIsBase) {
     return {
-      xlm: parseFloat(tr.base_amount) || 0,
+      quote: parseFloat(tr.base_amount) || 0,
       tokens: parseFloat(tr.counter_amount) || 0,
       buyer: tr.base_account,
       seller: tr.counter_account,
@@ -58,9 +81,11 @@ function sides(tr) {
 }
 
 // Return % on the XLM a wallet actually spent: cost basis is its buys, proceeds
-// are its sells. Wallets that only ever sold (creators seeding liquidity into the
-// curve) have no cost basis and are left out.
+// are its sells, with USDC converted so one ranking covers both markets. Wallets
+// that only ever sold (creators seeding liquidity) have no cost basis and are
+// left out.
 export async function fetchLeaderboard(tokens) {
+  const xlmPerUsdc = await fetchXlmUsdcRate();
   const wallets = {};
   const ensure = (addr) => {
     if (!addr) return null;
@@ -73,8 +98,9 @@ export async function fetchLeaderboard(tokens) {
     for (const tr of trades) {
       const s = sides(tr);
       if (!s) continue;
-      if (s.buyer) ensure(s.buyer).spent += s.xlm;
-      if (s.seller) ensure(s.seller).received += s.xlm;
+      const xlm = toXlm(s.quote, tr.quote, xlmPerUsdc);
+      if (s.buyer) ensure(s.buyer).spent += xlm;
+      if (s.seller) ensure(s.seller).received += xlm;
     }
   }
 
