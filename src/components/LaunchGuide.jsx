@@ -19,6 +19,14 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Markets & pools',
+    items: [
+      'Single Pool (XLM) can launch as a bonding curve or a liquidity pool. USDC and Dual (XLM + USDC) launches are always pool launches.',
+      'Initial liquidity seeds the pool(s): 10 XLM minimum, 50+ recommended. A dual launch needs the matching USDC amount too.',
+      'Trading or launching in a USDC market adds the USDC trustline automatically the first time.',
+    ],
+  },
+  {
     title: 'Supply & distribution',
     items: [
       'Total supply is fixed at launch and can never be increased (the issuer is permanently locked).',
@@ -29,7 +37,7 @@ const SECTIONS = [
   {
     title: 'Initial liquidity',
     items: [
-      'Minimum 10 XLM; 50+ XLM recommended to reduce early price slippage.',
+      'Minimum 10 XLM (or 10 USDC for a USDC pool); 50+ recommended to reduce early price slippage.',
       'For Auto-Pool, this XLM goes straight into the Stellar liquidity pool.',
       'Too little liquidity = huge price swings on the first trades.',
     ],

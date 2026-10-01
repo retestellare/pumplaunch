@@ -7,6 +7,7 @@ import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
 import LaunchGuide from '@/components/LaunchGuide';
+import OptionGroup from '@/components/launch/OptionGroup';
 import {
   loadAccount,
   parseBalances,
@@ -56,8 +57,7 @@ const CURVE_OPTIONS = Object.entries(CURVE_PRESETS).map(([key, p]) => ({
   value: key,
   label: p.label,
   desc: p.desc,
-  rungs: p.rungs,
-  step: p.priceStep,
+  meta: `${p.rungs} rungs · ${p.priceStep}× step`,
 }));
 
 const STEP_LABELS = STEPS.reduce((acc, s) => ({ ...acc, [s.id]: s.label }), { start: 'Start' });
@@ -722,38 +722,11 @@ export default function LaunchToken() {
             </div>
           )}
 
-          <div>
-            <label className="text-xs text-white/40 mb-2 block">Launch Type</label>
-            <div className="space-y-2">
-              {POOL_TYPES.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    setPoolType(opt.value);
-                    if (opt.value !== 'xlm') setAutoPool(true);
-                  }}
-                  disabled={blocked}
-                  className={`w-full text-left px-4 py-3 rounded-xl border transition disabled:opacity-40 ${
-                    poolType === opt.value ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm">{opt.label}</span>
-                    {poolType === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
-                  </div>
-                  <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
-                </button>
-              ))}
-            </div>
-            {poolType !== 'xlm' && (
-              <p className="text-[10px] text-white/30 mt-1">
-                USDC markets launch as liquidity pools with the full supply seeded. 1 USDC ≈{' '}
-                {xlmPerUsdc > 0 ? xlmPerUsdc.toFixed(2) : '—'} XLM.
-              </p>
-            )}
-          </div>
-
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-bold">Token Details</h3>
+              <p className="text-[10px] text-white/30 mt-0.5">Name, supply, logo and metadata</p>
+            </div>
             <div>
               <label className="text-xs text-white/40 mb-1.5 block">Name</label>
               <input
@@ -842,8 +815,68 @@ export default function LaunchToken() {
             </div>
           </div>
 
-          <div>
-            <label className="text-xs text-white/40 mb-2 block">Supply Distribution</label>
+          <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-bold">Market & Pool</h3>
+              <p className="text-[10px] text-white/30 mt-0.5">
+                Which Stellar market your token launches into, and how much liquidity you seed
+              </p>
+            </div>
+
+            <OptionGroup
+              label="Launch Type"
+              options={POOL_TYPES}
+              isSelected={(opt) => poolType === opt.value}
+              onSelect={(opt) => {
+                setPoolType(opt.value);
+                if (opt.value !== 'xlm') setAutoPool(true);
+              }}
+              disabled={blocked}
+              note={
+                poolType !== 'xlm' ? (
+                  <p className="text-[10px] text-white/30 mt-1">
+                    USDC markets launch as liquidity pools with the full supply seeded. 1 USDC ≈{' '}
+                    {xlmPerUsdc > 0 ? xlmPerUsdc.toFixed(2) : '—'} XLM.
+                  </p>
+                ) : null
+              }
+            />
+
+            <div>
+              <label className="text-xs text-white/40 mb-1.5 block">
+                Initial Liquidity ({poolType === 'usdc' ? 'USDC' : 'XLM'})
+                {autoPool && <span className="text-[#00ff88]"> · required</span>}
+              </label>
+              <input
+                type="number"
+                value={initialLiquidity}
+                onChange={(e) => setInitialLiquidity(e.target.value)}
+                placeholder={autoPool ? 'Min 10 XLM' : 'Optional (min 10 XLM)'}
+                disabled={blocked}
+                className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
+              />
+              <p className="text-[10px] text-white/30 mt-1">
+                {poolType === 'usdc'
+                  ? 'Minimum 10 USDC to seed the pool.'
+                  : 'Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.'}
+              </p>
+              {poolType === 'dual' && (
+                <p className="text-[10px] text-white/40 mt-1">
+                  Needs {(parseFloat(initialLiquidity) / (xlmPerUsdc || 1) || 0).toFixed(2)} USDC for the second pool
+                  {usdcTrustline ? '' : ' — the USDC trustline is added with your launch'}.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-bold">Supply Distribution & Bonding Curve</h3>
+              <p className="text-[10px] text-white/30 mt-0.5">
+                How much of the supply is seeded, and how steeply the curve prices it
+              </p>
+            </div>
+
             {poolType !== 'xlm' ? (
               <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3">
                 <p className="text-xs text-white/60">
@@ -852,92 +885,41 @@ export default function LaunchToken() {
                 </p>
               </div>
             ) : (
-            <div className="space-y-2">
-              {DISTRIBUTION_OPTIONS.map((opt) => {
-                const selected = opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => {
-                      if (opt.value === 'auto_pool') {
-                        setAutoPool(true);
-                      } else {
-                        setAutoPool(false);
-                        setLiquidity(opt.value);
-                      }
-                    }}
-                    disabled={blocked}
-                    className={`w-full text-left px-4 py-3 rounded-xl border transition disabled:opacity-40 ${
-                      selected ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm">{opt.label}</span>
-                      {selected && <span className="text-[#00ff88] text-xs">✓</span>}
+              <OptionGroup
+                label="Distribution"
+                options={DISTRIBUTION_OPTIONS}
+                isSelected={(opt) => (opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value)}
+                onSelect={(opt) => {
+                  if (opt.value === 'auto_pool') {
+                    setAutoPool(true);
+                  } else {
+                    setAutoPool(false);
+                    setLiquidity(opt.value);
+                  }
+                }}
+                disabled={blocked}
+              />
+            )}
+
+            {!autoPool && (
+              <OptionGroup
+                label="Price Curve"
+                options={CURVE_OPTIONS}
+                isSelected={(opt) => curve === opt.value}
+                onSelect={(opt) => setCurve(opt.value)}
+                disabled={blocked}
+                note={
+                  curve === 'fast' || curve === 'hyper' ? (
+                    <div className="mt-2 bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl px-3 py-2">
+                      <p className="text-xs text-white/60">
+                        ⚠ Prices rise sharply after early buys — later buyers pay much more.
+                      </p>
                     </div>
-                    <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
-                  </button>
-                );
-              })}
-            </div>
+                  ) : null
+                }
+              />
             )}
           </div>
-
-          <div>
-            <label className="text-xs text-white/40 mb-2 block">
-              Initial Liquidity ({poolType === 'usdc' ? 'USDC' : 'XLM'})
-              {autoPool && <span className="text-[#00ff88]"> · required</span>}
-            </label>
-            <input
-              type="number"
-              value={initialLiquidity}
-              onChange={(e) => setInitialLiquidity(e.target.value)}
-              placeholder={autoPool ? 'Min 10 XLM' : 'Optional (min 10 XLM)'}
-              disabled={blocked}
-              className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
-            />
-            <p className="text-[10px] text-white/30 mt-1">
-              {poolType === 'usdc'
-                ? 'Minimum 10 USDC to seed the pool.'
-                : 'Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.'}
-            </p>
-            {poolType === 'dual' && (
-              <p className="text-[10px] text-white/40 mt-1">
-                Needs {(parseFloat(initialLiquidity) / (xlmPerUsdc || 1) || 0).toFixed(2)} USDC for the second pool
-                {usdcTrustline ? '' : ' — the USDC trustline is added with your launch'}.
-              </p>
-            )}
-          </div>
-
-          {!autoPool && (
-            <div>
-              <label className="text-xs text-white/40 mb-2 block">Price Curve</label>
-              <div className="space-y-2">
-                {CURVE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setCurve(opt.value)}
-                    disabled={blocked}
-                    className={`w-full text-left px-4 py-3 rounded-xl border transition disabled:opacity-40 ${
-                      curve === opt.value ? 'border-[#00ff88] bg-[#00ff88]/5' : 'border-white/5 bg-[#141518]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sm">{opt.label}</span>
-                      {curve === opt.value && <span className="text-[#00ff88] text-xs">✓</span>}
-                    </div>
-                    <div className="text-xs text-white/40 mt-0.5">{opt.desc}</div>
-                    <div className="text-[10px] text-white/30 mt-0.5">{opt.rungs} rungs · {opt.step}× step</div>
-                  </button>
-                ))}
-              </div>
-              {(curve === 'fast' || curve === 'hyper') && (
-                <div className="mt-2 bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl px-3 py-2">
-                  <p className="text-xs text-white/60">⚠ Prices rise sharply after early buys — later buyers pay much more.</p>
-                </div>
-              )}
-            </div>
-          )}
 
           {wallet && availableXlm !== null && !balanceOk && !blocked && (
             <div className="bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl p-3 space-y-1.5">
