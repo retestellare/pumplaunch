@@ -1,4 +1,10 @@
+import { mapLimit } from '@/lib/concurrency';
+
 const HORIZON_URL = 'https://horizon.stellar.org';
+const TRADE_CONCURRENCY = 6;
+
+// Cost basis below this is dust — a percentage built on it says nothing.
+const MIN_SPEND_XLM = 0.01;
 
 export async function fetchTokenTrades(assetCode, issuer) {
   const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
@@ -24,16 +30,36 @@ export async function fetchTokenTrades(assetCode, issuer) {
 }
 
 async function fetchAllTrades(tokens) {
-  const results = await Promise.all(
-    tokens.map(async (t) => {
-      if (!t.issuer || !t.asset_code) return [];
-      try { return await fetchTokenTrades(t.asset_code, t.issuer); } catch { return []; }
-    })
+  const results = await mapLimit(tokens, TRADE_CONCURRENCY, (t) =>
+    t?.issuer && t?.asset_code ? fetchTokenTrades(t.asset_code, t.issuer) : []
   );
-  return tokens.map((t, i) => ({ token: t, trades: results[i] }));
+  return tokens.map((t, i) => ({ token: t, trades: results[i] || [] }));
 }
 
-// Realized cash-flow PnL per wallet: XLM received from sells − XLM spent on buys.
+// Which side of a trade paid XLM and which side received it.
+function sides(tr) {
+  if (tr.counter_asset_type === 'native') {
+    return {
+      xlm: parseFloat(tr.counter_amount) || 0,
+      tokens: parseFloat(tr.base_amount) || 0,
+      buyer: tr.counter_account,
+      seller: tr.base_account,
+    };
+  }
+  if (tr.base_asset_type === 'native') {
+    return {
+      xlm: parseFloat(tr.base_amount) || 0,
+      tokens: parseFloat(tr.counter_amount) || 0,
+      buyer: tr.base_account,
+      seller: tr.counter_account,
+    };
+  }
+  return null;
+}
+
+// Return % on the XLM a wallet actually spent: cost basis is its buys, proceeds
+// are its sells. Wallets that only ever sold (creators seeding liquidity into the
+// curve) have no cost basis and are left out.
 export async function fetchLeaderboard(tokens) {
   const wallets = {};
   const ensure = (addr) => {
@@ -45,64 +71,51 @@ export async function fetchLeaderboard(tokens) {
   const all = await fetchAllTrades(tokens);
   for (const { trades } of all) {
     for (const tr of trades) {
-      let buyer = null;
-      let seller = null;
-      let xlmAmount = 0;
-      if (tr.counter_asset_type === 'native') {
-        xlmAmount = parseFloat(tr.counter_amount);
-        buyer = tr.counter_account;
-        seller = tr.base_account;
-      } else if (tr.base_asset_type === 'native') {
-        xlmAmount = parseFloat(tr.base_amount);
-        buyer = tr.base_account;
-        seller = tr.counter_account;
-      } else {
-        continue;
-      }
-      if (buyer) ensure(buyer).spent += xlmAmount;
-      if (seller) ensure(seller).received += xlmAmount;
+      const s = sides(tr);
+      if (!s) continue;
+      if (s.buyer) ensure(s.buyer).spent += s.xlm;
+      if (s.seller) ensure(s.seller).received += s.xlm;
     }
   }
 
-  const rows = Object.values(wallets).map((w) => {
-    const pnl = w.received - w.spent;
-    const gainPct = w.spent > 0 ? (pnl / w.spent) * 100 : null;
-    return { address: w.address, pnl, gainPct, spent: w.spent };
-  });
+  const rows = Object.values(wallets)
+    .filter((w) => w.spent >= MIN_SPEND_XLM)
+    .map((w) => {
+      const pnl = w.received - w.spent;
+      return { address: w.address, pnl, spent: w.spent, gainPct: (pnl / w.spent) * 100 };
+    });
 
-  rows.sort((a, b) => {
-    const av = a.gainPct ?? (a.pnl > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE);
-    const bv = b.gainPct ?? (b.pnl > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE);
-    if (bv !== av) return bv - av;
-    if (b.pnl !== a.pnl) return b.pnl - a.pnl;
-    return a.address.localeCompare(b.address);
-  });
+  rows.sort(
+    (a, b) =>
+      b.gainPct - a.gainPct ||
+      b.pnl - a.pnl ||
+      a.address.localeCompare(b.address)
+  );
 
   return rows;
 }
 
 export async function fetchNewHolders(tokens) {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  // Issuers and creators are not "new holders" — they are the supply side.
+  const excluded = new Set(tokens.flatMap((t) => [t.creator, t.issuer]).filter(Boolean));
   const buyers = [];
+
   const all = await fetchAllTrades(tokens);
   for (const { token, trades } of all) {
     for (const tr of trades) {
-      const ts = new Date(tr.ledger_close_time).getTime();
-      if (ts < oneDayAgo) continue;
-      let buyer = null;
-      let amount = 0;
-      if (tr.counter_asset_type === 'native') {
-        buyer = tr.counter_account;
-        amount = parseFloat(tr.base_amount);
-      } else if (tr.base_asset_type === 'native') {
-        buyer = tr.base_account;
-        amount = parseFloat(tr.counter_amount);
-      }
-      if (buyer) {
-        buyers.push({ address: buyer, tokenSymbol: token.symbol, amount, time: tr.ledger_close_time });
-      }
+      if (new Date(tr.ledger_close_time).getTime() < oneDayAgo) continue;
+      const s = sides(tr);
+      if (!s || !s.buyer || excluded.has(s.buyer)) continue;
+      buyers.push({
+        address: s.buyer,
+        tokenSymbol: token.symbol,
+        amount: s.tokens,
+        time: tr.ledger_close_time,
+      });
     }
   }
+
   const byAddr = {};
   for (const b of buyers) {
     if (!byAddr[b.address] || new Date(b.time) > new Date(byAddr[b.address].time)) {

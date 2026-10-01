@@ -3,8 +3,9 @@ import { Users } from 'lucide-react';
 import TokenIcon from './TokenIcon';
 
 export default function TokenCard({ token, rank }) {
-  const change = token.change_24h ?? 0;
-  const positive = change >= 0;
+  const change = token.change_24h;
+  const hasChange = change != null && !isNaN(change);
+  const positive = (change ?? 0) >= 0;
   const navigate = useNavigate();
   return (
     <Link
@@ -33,10 +34,11 @@ export default function TokenCard({ token, rank }) {
         <div className="text-xs text-white/40 truncate">{token.name}</div>
       </div>
       <div className="text-right">
-        <div className="text-sm font-medium">${(token.price ?? 0).toFixed(8)}</div>
-        <div className={`text-xs font-medium ${positive ? 'text-[#00ff88]' : 'text-[#ff3b5c]'}`}>
-          {positive ? '+' : ''}
-          {change.toFixed(2)}%
+        <div className="text-sm font-medium">
+          {token.price != null ? `$${Number(token.price).toFixed(8)}` : '—'}
+        </div>
+        <div className={`text-xs font-medium ${!hasChange ? 'text-white/30' : positive ? 'text-[#00ff88]' : 'text-[#ff3b5c]'}`}>
+          {hasChange ? `${positive ? '+' : ''}${change.toFixed(2)}%` : '—'}
         </div>
       </div>
     </Link>

@@ -5,31 +5,47 @@ function shortAddr(addr) {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
 }
 
+function SkeletonRows() {
+  return (
+    <div className="space-y-1.5 animate-pulse">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-2.5 px-1 py-1.5">
+          <div className="w-6 h-6 rounded-full bg-white/5" />
+          <div className="flex-1 h-3 rounded bg-white/5" />
+          <div className="w-16 h-3 rounded bg-white/5" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function NewHoldersToday({ tokens }) {
   const [holders, setHolders] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const tokenKey = tokens.map((t) => t.id).join(',');
 
   useEffect(() => {
     let active = true;
     (async () => {
       setLoading(true);
       try {
-        // Limit work to the 12 most recent tokens for fast load
-        const data = await fetchNewHolders(tokens.slice(0, 12));
+        const data = await fetchNewHolders(tokens);
         if (active) setHolders(data);
       } catch { /* ignore */ }
       if (active) setLoading(false);
     })();
     return () => { active = false; };
-  }, [tokens]);
+  }, [tokenKey]);
 
   return (
     <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
-      <h3 className="font-bold text-sm">🆕 New Holders Today</h3>
+      <div>
+        <h3 className="font-bold text-sm">🆕 New Holders Today</h3>
+        <p className="text-[10px] text-white/30 mt-0.5">Wallets that bought in the last 24h</p>
+      </div>
       {loading ? (
-        <div className="flex justify-center py-4">
-          <div className="w-6 h-6 border-2 border-white/10 border-t-[#00ff88] rounded-full animate-spin" />
-        </div>
+        <SkeletonRows />
       ) : holders.length === 0 ? (
         <p className="text-xs text-white/30 text-center py-2">No new holders in the last 24h.</p>
       ) : (

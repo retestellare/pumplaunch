@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import PageLayout from '@/components/PageLayout';
 import TokenCard from '@/components/TokenCard';
 import WalletButton from '@/components/WalletButton';
-import { fetchAssetStats } from '@/lib/stellar';
 import { useWallet } from '@/lib/wallet';
 import { Link } from 'react-router-dom';
 import { HelpCircle } from 'lucide-react';
 import NewHoldersToday from '@/components/NewHoldersToday';
 import Leaderboard from '@/components/Leaderboard';
+import { fetchTokenMarket } from '@/lib/market';
+import { mapLimit } from '@/lib/concurrency';
 
 const TABS = [
   { key: 'hot', label: '🔥 Hot' },
@@ -16,80 +17,68 @@ const TABS = [
   { key: 'holders', label: '🏆 Holders' },
 ];
 
+const ENRICH_CONCURRENCY = 6;
+const NEW_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function enrich(token, stats, market) {
+  const price = market?.price > 0 ? market.price : null;
+  return {
+    ...token,
+    holders: stats.holders || 0,
+    volume_24h: stats.volume24h || 0,
+    change_24h: stats.change24h,
+    price: price != null ? price : token.price,
+    market_cap: price != null ? price * (token.supply || 0) : token.market_cap,
+  };
+}
+
+const createdTime = (t) => new Date(t.created_date).getTime();
+
 export default function Home() {
   const { wallet } = useWallet();
   const [tab, setTab] = useState('hot');
   const [allTokens, setAllTokens] = useState([]);
-  const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      setLoading(true);
-      let list = await base44.entities.Token.list('-created_date', 100);
+      const list = await base44.entities.Token.list('-created_date', 100);
       if (!active) return;
       setAllTokens(list);
       setLoading(false);
 
-      // Enrich with live on-chain data (first 12 tokens, in parallel chunks for speed)
-      const toEnrich = list.slice(0, 12).filter((t) => t.issuer && t.asset_code);
-      const CHUNK = 4;
-      for (let i = 0; i < toEnrich.length; i += CHUNK) {
-        if (!active) return;
-        const chunk = toEnrich.slice(i, i + CHUNK);
-        await Promise.all(
-          chunk.map(async (t) => {
-            try {
-              const stats = await fetchAssetStats(t.asset_code, t.issuer);
-              if (!active) return;
-              setAllTokens((prev) =>
-                prev.map((p) =>
-                  p.id === t.id
-                    ? {
-                        ...p,
-                        holders: stats.holders || p.holders,
-                        volume_24h: stats.volume24h || p.volume_24h || 0,
-                        price: stats.price > 0 ? stats.price : p.price,
-                        market_cap: stats.price > 0 ? stats.price * (p.supply || 0) : p.market_cap,
-                        change_24h: stats.change24h != null ? stats.change24h : p.change_24h ?? 0,
-                      }
-                    : p
-                )
-              );
-            } catch {
-              /* skip */
-            }
-          })
-        );
-      }
+      // Live figures stream in afterwards — the list never waits on Horizon.
+      setEnriching(true);
+      await mapLimit(list.filter((t) => t.issuer && t.asset_code), ENRICH_CONCURRENCY, async (t) => {
+        const { stats, market } = await fetchTokenMarket(t);
+        if (!active || !stats) return;
+        setAllTokens((prev) => prev.map((p) => (p.id === t.id ? enrich(p, stats, market) : p)));
+      });
+      if (active) setEnriching(false);
     })();
     return () => {
       active = false;
     };
   }, []);
 
-  useEffect(() => {
-    let list = [...allTokens];
+  const tokens = useMemo(() => {
+    const list = [...allTokens];
     if (tab === 'hot')
-      list = list.sort(
+      return list.sort(
         (a, b) =>
           (b.volume_24h || 0) - (a.volume_24h || 0) ||
-          (b.change_24h || 0) - (a.change_24h || 0) ||
-          new Date(b.created_date) - new Date(a.created_date)
+          (b.holders || 0) - (a.holders || 0) ||
+          createdTime(b) - createdTime(a)
       );
-    else if (tab === 'holders')
-      list = list.sort(
-        (a, b) => (b.holders || 0) - (a.holders || 0) || new Date(b.created_date) - new Date(a.created_date)
+    if (tab === 'holders')
+      return list.sort(
+        (a, b) => (b.holders || 0) - (a.holders || 0) || createdTime(b) - createdTime(a)
       );
-    else {
-      const now = new Date();
-      const startOfDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-      list = list
-        .filter((t) => new Date(t.created_date).getTime() >= startOfDay)
-        .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
-    }
-    setTokens(list);
+    const cutoff = Date.now() - NEW_WINDOW_MS;
+    const fresh = list.filter((t) => createdTime(t) >= cutoff).sort((a, b) => createdTime(b) - createdTime(a));
+    return fresh.length > 0 ? fresh : list.slice(0, 20);
   }, [tab, allTokens]);
 
   return (
@@ -126,11 +115,11 @@ export default function Home() {
       ) : (
         <div>
           {tokens.map((t, i) => (
-            <TokenCard key={t.id} token={t} rank={i + 1} />
+            <TokenCard key={t.id} token={t} rank={enriching ? null : i + 1} />
           ))}
         </div>
       )}
-      {!loading && allTokens.length > 0 && (
+      {allTokens.length > 0 && (
         <div className="px-3 pt-4 space-y-3">
           <NewHoldersToday tokens={allTokens} />
           <Leaderboard tokens={allTokens} walletAddress={wallet?.address} />

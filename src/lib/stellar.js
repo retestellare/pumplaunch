@@ -21,6 +21,33 @@ const server = new StellarSdk.Horizon.Server(HORIZON_URL);
 
 export { server, StellarSdk };
 
+// Horizon answers are cached briefly so several panels looking at the same token
+// share one lookup instead of refetching on every mount and tab switch.
+const CACHE_TTL = 60 * 1000;
+const horizonCache = new Map();
+
+async function horizonJsonSafe(path, ttl = CACHE_TTL) {
+  const url = `${HORIZON_URL}${path}`;
+  const hit = horizonCache.get(url);
+  if (hit && Date.now() - hit.time < ttl) return hit.data;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    horizonCache.set(url, { time: Date.now(), data });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 const ERROR_MAP = {
   tx_bad_seq: 'The transaction used a stale sequence number. Retrying with a fresh one.',
   tx_bad_auth: 'The wallet signature was rejected or invalid.',
@@ -449,60 +476,73 @@ export function buildPoolSellTransaction({ sourceAccount, assetCode, issuer, tok
   return tx.setTimeout(300).build();
 }
 
+function reserveAsset(r) {
+  return r.asset || (r.asset_code ? `${r.asset_code}:${r.asset_issuer}` : '');
+}
+
+// Only a pool that holds BOTH native XLM and this exact asset (code + issuer)
+// prices the token. Any other pool in the results is a different market, and
+// reading it reports a zero XLM reserve and a zero price.
 export async function fetchPoolPrice(assetCode, issuer) {
-  try {
-    const res = await fetch(`${HORIZON_URL}/liquidity_pools?reserves=native&reserves=${assetCode}:${issuer}&limit=1`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const records = data._embedded?.records || [];
-    if (records.length === 0) return null;
-    const pool = records[0];
+  const data = await horizonJsonSafe(
+    `/liquidity_pools?reserves=native&reserves=${assetCode}:${issuer}&limit=20`
+  );
+  const records = data?._embedded?.records || [];
+
+  let best = null;
+  for (const pool of records) {
     const reserves = pool.reserves || [];
-    let xlmReserve = 0;
-    let tokenReserve = 0;
-    for (const r of reserves) {
-      if (r.asset === 'native') xlmReserve = parseFloat(r.amount);
-      else tokenReserve = parseFloat(r.amount);
+    const native = reserves.find((r) => reserveAsset(r) === 'native');
+    const token = reserves.find((r) => reserveAsset(r) === `${assetCode}:${issuer}`);
+    if (!native || !token) continue;
+    const xlmReserve = parseFloat(native.amount) || 0;
+    const tokenReserve = parseFloat(token.amount) || 0;
+    if (xlmReserve <= 0 || tokenReserve <= 0) continue;
+    if (!best || xlmReserve > best.xlmReserve) {
+      best = { price: xlmReserve / tokenReserve, xlmReserve, tokenReserve, poolId: pool.id };
     }
-    if (tokenReserve === 0) return null;
-    return { price: xlmReserve / tokenReserve, xlmReserve, tokenReserve, poolId: pool.id };
-  } catch {
-    return null;
   }
+  return best;
 }
 
 export async function fetchOrderBook(assetCode, issuer) {
-  try {
-    const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
-    const res = await fetch(
-      `${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`
-    );
-    if (!res.ok) return null;
-    const ob = await res.json();
-    const bids = ob.bids || [];
-    const asks = ob.asks || [];
-    const bestBid = bids.length > 0 ? parseFloat(bids[0].price) : 0;
-    const bestAsk = asks.length > 0 ? parseFloat(asks[0].price) : 0;
-    const bidAmount = bids.length > 0 ? parseFloat(bids[0].amount) : 0;
-    const askAmount = asks.length > 0 ? parseFloat(asks[0].amount) : 0;
-    const bidDepth = bids.reduce((s, b) => s + parseFloat(b.amount), 0);
-    const askDepth = asks.reduce((s, a) => s + parseFloat(a.amount), 0);
-    const askFloor = asks.length > 0 ? parseFloat(asks[asks.length - 1].price) : 0;
-    return {
-      bestBid,
-      bestAsk,
-      spread: bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0,
-      bidAmount,
-      askAmount,
-      bidDepth,
-      askDepth,
-      askFloor,
-      bidCount: bids.length,
-      askCount: asks.length,
-    };
-  } catch {
-    return null;
-  }
+  const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+  const ob = await horizonJsonSafe(
+    `/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`
+  );
+  if (!ob) return null;
+
+  const bids = ob.bids || [];
+  const asks = ob.asks || [];
+
+  // price_r keeps the exact rational price. The 7-decimal "price" field rounds
+  // tiny prices away, which is how a 0.000003 market looked like something else.
+  const priceOf = (row) => {
+    const n = parseFloat(row.price_r?.n);
+    const d = parseFloat(row.price_r?.d);
+    if (n > 0 && d > 0) return n / d;
+    return parseFloat(row.price) || 0;
+  };
+
+  const bidPrices = bids.map(priceOf).filter((p) => p > 0);
+  const askPrices = asks.map(priceOf).filter((p) => p > 0);
+  const bidDepth = bids.reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
+  const askDepth = asks.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
+  const bestBid = bidPrices.length ? Math.max(...bidPrices) : 0;
+  const bestAsk = askPrices.length ? Math.min(...askPrices) : 0;
+
+  return {
+    bestBid,
+    bestAsk,
+    spread: bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0,
+    bidAmount: bids.length ? parseFloat(bids[0].amount) || 0 : 0,
+    askAmount: asks.length ? parseFloat(asks[0].amount) || 0 : 0,
+    bidDepth,
+    askDepth,
+    askFloor: askPrices.length ? Math.max(...askPrices) : 0,
+    bidCount: bids.length,
+    askCount: asks.length,
+  };
 }
 
 export function keypairFromSecret(secret) {
@@ -652,99 +692,85 @@ export function estimateLaunchCost({ liquidityPercent, rungs = CURVE_PRESETS.slo
 export async function fetchAssetStats(assetCode, issuer) {
   const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
 
-  const [holdersRes, tradesAsBaseRes, tradesAsCounterRes, orderBookRes] = await Promise.all([
-    fetch(`${HORIZON_URL}/accounts?asset=${assetCode}:${issuer}&limit=200`).catch(() => null),
-    fetch(`${HORIZON_URL}/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=50&order=desc`).catch(() => null),
-    fetch(`${HORIZON_URL}/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`).catch(() => null),
-    fetch(`${HORIZON_URL}/order_book?selling_asset_type=${assetType}&selling_asset_code=${assetCode}&selling_asset_issuer=${issuer}&buying_asset_type=native`).catch(() => null),
+  const [holdersData, baseTradesData, counterTradesData] = await Promise.all([
+    horizonJsonSafe(`/accounts?asset=${assetCode}:${issuer}&limit=200`),
+    horizonJsonSafe(`/trades?base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}&counter_asset_type=native&limit=50&order=desc`),
+    horizonJsonSafe(`/trades?base_asset_type=native&counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}&limit=50&order=desc`),
   ]);
 
+  // Holders are wallets with a positive balance. The issuer and empty trustlines
+  // are not holders.
   let holders = 0;
-  if (holdersRes?.ok) {
-    const data = await holdersRes.json();
-    holders = (data._embedded?.records || []).length;
+  for (const acc of holdersData?._embedded?.records || []) {
+    if (acc.account_id === issuer) continue;
+    const bal = (acc.balances || []).find(
+      (b) => b.asset_code === assetCode && b.asset_issuer === issuer
+    );
+    if (!bal || parseFloat(bal.balance) <= 0) continue;
+    holders++;
   }
 
+  // Pool fills and offer fills both count as trades — dedupe the two queries by id.
   const seen = new Set();
-  let allTrades = [];
-  if (tradesAsBaseRes?.ok) {
-    const data = await tradesAsBaseRes.json();
-    for (const r of data._embedded?.records || []) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        allTrades.push(r);
-      }
-    }
-  }
-  if (tradesAsCounterRes?.ok) {
-    const data = await tradesAsCounterRes.json();
-    for (const r of data._embedded?.records || []) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        allTrades.push(r);
-      }
+  const allTrades = [];
+  for (const data of [baseTradesData, counterTradesData]) {
+    for (const r of data?._embedded?.records || []) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      allTrades.push(r);
     }
   }
   allTrades.sort((a, b) => new Date(b.ledger_close_time) - new Date(a.ledger_close_time));
 
-  let price = 0;
-  if (orderBookRes?.ok) {
-    const ob = await orderBookRes.json();
-    const asks = ob.asks || [];
-    const bids = ob.bids || [];
-    if (asks.length > 0) {
-      price = parseFloat(asks[0].price_r.n) / parseFloat(asks[0].price_r.d);
-    } else if (bids.length > 0) {
-      price = parseFloat(bids[0].price_r.n) / parseFloat(bids[0].price_r.d);
-    }
-  }
-  if (price === 0 && allTrades.length > 0) {
-    const last = allTrades[0];
-    const isTokenBase = last.base_asset_code === assetCode && last.base_asset_issuer === issuer;
-    price = isTokenBase
-      ? parseFloat(last.price.n) / parseFloat(last.price.d)
-      : parseFloat(last.price.d) / parseFloat(last.price.n);
-  }
+  // XLM per token for one trade, whichever way round the pair is quoted.
+  const tradePrice = (t) => {
+    const n = parseFloat(t.price?.n);
+    const d = parseFloat(t.price?.d);
+    if (!n || !d) return 0;
+    const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
+    return isTokenBase ? n / d : d / n;
+  };
 
-  const now = Date.now();
-  const oneDayAgo = now - 24 * 60 * 60 * 1000;
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+  // Volume is the XLM leg, counted once per trade.
   let volume24h = 0;
   for (const trade of allTrades) {
-    const ts = new Date(trade.ledger_close_time).getTime();
-    if (ts >= oneDayAgo) {
-      if (trade.counter_asset_type === 'native') {
-        volume24h += parseFloat(trade.counter_amount);
-      } else if (trade.base_asset_type === 'native') {
-        volume24h += parseFloat(trade.base_amount);
-      }
-    }
+    if (new Date(trade.ledger_close_time).getTime() < oneDayAgo) continue;
+    if (trade.counter_asset_type === 'native') volume24h += parseFloat(trade.counter_amount) || 0;
+    else if (trade.base_asset_type === 'native') volume24h += parseFloat(trade.base_amount) || 0;
   }
 
-  // Build price history from trades (oldest → newest)
-  const tradePrice = (t) => {
-    const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
-    return isTokenBase
-      ? parseFloat(t.price.n) / parseFloat(t.price.d)
-      : parseFloat(t.price.d) / parseFloat(t.price.n);
-  };
+  // Oldest → newest, for the chart.
   const priceHistory = allTrades
     .slice()
     .reverse()
     .map(tradePrice)
     .filter((p) => p > 0);
 
-  // 24h change: latest trade price vs price ~24h ago (oldest trade as fallback)
-  let change24h = 0;
-  if (allTrades.length > 0) {
-    const currentPrice = tradePrice(allTrades[0]);
-    const baselineTrade = allTrades.find((t) => new Date(t.ledger_close_time).getTime() <= oneDayAgo);
-    const baselinePrice = baselineTrade ? tradePrice(baselineTrade) : tradePrice(allTrades[allTrades.length - 1]);
-    if (baselinePrice > 0) {
-      change24h = ((currentPrice - baselinePrice) / baselinePrice) * 100;
-    }
+  // 24h change compares the two halves of the window using a median, so one
+  // outsized fill cannot swing it. Fewer than two fills means nothing to compare.
+  const windowPrices = allTrades
+    .filter((t) => new Date(t.ledger_close_time).getTime() >= oneDayAgo)
+    .map(tradePrice)
+    .filter((p) => p > 0)
+    .reverse();
+  let change24h = null;
+  if (windowPrices.length >= 2) {
+    const half = Math.max(1, Math.floor(windowPrices.length / 2));
+    const base = median(windowPrices.slice(0, half));
+    const current = median(windowPrices.slice(-half));
+    if (base > 0) change24h = ((current - base) / base) * 100;
   }
 
-  return { holders, trades: allTrades, price, volume24h, priceHistory, change24h };
+  return {
+    holders,
+    trades: allTrades,
+    volume24h,
+    priceHistory,
+    change24h,
+    lastPrice: priceHistory.length ? priceHistory[priceHistory.length - 1] : 0,
+  };
 }
 
 export function formatOnChainTrades(trades, assetCode, issuer, maxCount = 20) {

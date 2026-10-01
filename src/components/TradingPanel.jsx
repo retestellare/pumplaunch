@@ -15,10 +15,11 @@ import {
   estimateTradeCost,
 } from '@/lib/stellar';
 import TriggerPriceModal from '@/components/TriggerPriceModal';
+import { ROUTE_LABEL } from '@/lib/market';
 
 const LIMIT_PRESETS = [5, 10, 20];
 
-export default function TradingPanel({ token, marketPrice, onTrade }) {
+export default function TradingPanel({ token, market, onTrade }) {
   const { wallet } = useWallet();
   const { toast } = useToast();
   const [side, setSide] = useState('buy');
@@ -31,9 +32,15 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
   const [triggerPrice, setTriggerPrice] = useState(0);
   const [showModal, setShowModal] = useState(false);
 
-  const price = marketPrice || token.price || 0.000001;
   const isOnChain = !!(token.issuer && token.asset_code);
   const isAutoPool = !!token.is_auto_pool;
+
+  // Best route for this direction: the pool and the book compared, never a
+  // quote invented from a stored or fallback price.
+  const routePrice = side === 'buy' ? market?.buyPrice || 0 : market?.sellPrice || 0;
+  const route = side === 'buy' ? market?.buyRoute : market?.sellRoute;
+  const price = routePrice;
+  const tradable = price > 0;
 
   useEffect(() => {
     if (mode === 'limit' && triggerPrice === 0 && price > 0) {
@@ -83,9 +90,9 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
 
   const balance = side === 'buy' ? xlmBalance : tokenBalance;
   const effectivePrice = mode === 'limit' ? triggerPrice : price;
-  const estOut = side === 'buy'
+  const estOut = effectivePrice > 0
     ? (parseFloat(amount) || 0) / effectivePrice
-    : (parseFloat(amount) || 0) * effectivePrice;
+    : 0;
 
   const applyPreset = (pct) => {
     setTriggerPrice(side === 'buy' ? price * (1 - pct / 100) : price * (1 + pct / 100));
@@ -98,6 +105,14 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
     }
     if (!isOnChain) {
       toast({ title: 'This token is not on-chain yet', variant: 'destructive' });
+      return;
+    }
+    if (!tradable) {
+      toast({
+        title: 'No liquidity to trade against yet',
+        description: 'This token has no pool and no open offers.',
+        variant: 'destructive',
+      });
       return;
     }
     const amt = parseFloat(amount);
@@ -319,9 +334,10 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
           ))}
         </div>
       </div>
-      {amount && (
+      {amount && tradable && (
         <div className="text-xs text-white/40">
-          ≈ {estOut.toFixed(2)} {side === 'buy' ? token.symbol : 'XLM'}
+          ≈ {estOut.toFixed(2)} {side === 'buy' ? token.symbol : 'XLM'} · {effectivePrice.toFixed(8)} XLM
+          {route ? ` via ${ROUTE_LABEL[route]}` : ''}
         </div>
       )}
 
@@ -342,6 +358,20 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
             <span className="font-medium">{confirm.estOut.toFixed(2)} {side === 'buy' ? token.symbol : 'XLM'}</span>
           </div>
           <div className="flex items-center justify-between text-xs">
+            <span className="text-white/40">Price used</span>
+            <span className="font-medium">
+              {effectivePrice.toFixed(8)} XLM{route ? ` · ${ROUTE_LABEL[route]}` : ''}
+            </span>
+          </div>
+          {mode === 'market' && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/40">Minimum received</span>
+              <span className="font-medium">
+                {(confirm.estOut * 0.9).toFixed(2)} {side === 'buy' ? token.symbol : 'XLM'}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-xs">
             <span className="text-white/40">Network fee</span>
             <span className="text-white/60">~{cost.feeXlm.toFixed(5)} XLM</span>
           </div>
@@ -351,6 +381,14 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
               <span className="text-white/60">~{cost.reserveXlm.toFixed(1)} XLM</span>
             </div>
           )}
+        </div>
+      )}
+
+      {market && !tradable && (
+        <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+          <p className="text-xs text-white/50">
+            No liquidity to trade against yet — this token has no pool and no open offers.
+          </p>
         </div>
       )}
 
@@ -376,11 +414,16 @@ export default function TradingPanel({ token, marketPrice, onTrade }) {
       ) : (
         <button
           onClick={startConfirm}
-          className={`w-full py-3.5 rounded-xl font-bold text-sm ${
+          disabled={!!market && !tradable}
+          className={`w-full py-3.5 rounded-xl font-bold text-sm disabled:opacity-50 ${
             side === 'buy' ? 'bg-[#00ff88] text-black' : 'bg-[#ff3b5c] text-black'
           }`}
         >
-          {wallet ? `${mode === 'limit' ? 'Limit ' : ''}${side === 'buy' ? 'Buy' : 'Sell'} $${token.symbol}` : 'Connect Wallet'}
+          {!wallet
+            ? 'Connect Wallet'
+            : market && !tradable
+            ? 'No liquidity yet'
+            : `${mode === 'limit' ? 'Limit ' : ''}${side === 'buy' ? 'Buy' : 'Sell'} $${token.symbol}`}
         </button>
       )}
 

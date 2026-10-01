@@ -7,51 +7,42 @@ import SimpleChart from '@/components/SimpleChart';
 import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
 import BottomNav from '@/components/BottomNav';
-import { fetchAssetStats, formatOnChainTrades, fetchPoolPrice, fetchOrderBook } from '@/lib/stellar';
+import { fetchAssetStats, formatOnChainTrades } from '@/lib/stellar';
+import { fetchMarket, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
+
+function fmtXlm(n, d = 2) {
+  if (n == null || isNaN(n)) return '—';
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K XLM`;
+  return `${Number(n).toLocaleString(undefined, { maximumFractionDigits: d })} XLM`;
+}
 
 export default function TokenDetail() {
   const { id } = useParams();
   const [token, setToken] = useState(null);
-  const [liveStats, setLiveStats] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [market, setMarket] = useState(null);
   const [liveTrades, setLiveTrades] = useState([]);
   const [ordersKey, setOrdersKey] = useState(0);
-  const [poolInfo, setPoolInfo] = useState(null);
-  const [orderBook, setOrderBook] = useState(null);
-  const [poolMissing, setPoolMissing] = useState(false);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
     setToken(t);
-    setPoolInfo(null);
-    setOrderBook(null);
-    setPoolMissing(false);
+    setStats(null);
+    setMarket(null);
+    setLiveTrades([]);
     setOrdersKey((k) => k + 1);
 
-    if (t.issuer && t.asset_code) {
-      try {
-        const stats = await fetchAssetStats(t.asset_code, t.issuer);
-        setLiveStats(stats);
-        setLiveTrades(formatOnChainTrades(stats.trades, t.asset_code, t.issuer));
-      } catch {
-        /* fall back to database values */
-      }
-      if (t.is_auto_pool) {
-        try {
-          const pool = await fetchPoolPrice(t.asset_code, t.issuer);
-          if (pool) setPoolInfo(pool);
-          else setPoolMissing(true);
-        } catch {
-          setPoolMissing(true);
-        }
-      }
-      try {
-        setOrderBook(await fetchOrderBook(t.asset_code, t.issuer));
-      } catch {
-        setOrderBook(null);
-      }
-    }
+    if (!t.issuer || !t.asset_code) return;
+
+    const [s, m] = await Promise.all([
+      fetchAssetStats(t.asset_code, t.issuer),
+      fetchMarket(t.asset_code, t.issuer, { isAutoPool: t.is_auto_pool }),
+    ]);
+    setStats(s);
+    setMarket(m);
+    setLiveTrades(formatOnChainTrades(s.trades, t.asset_code, t.issuer));
   };
 
   useEffect(() => {
@@ -66,28 +57,14 @@ export default function TokenDetail() {
     );
   }
 
-  const price = poolInfo && poolInfo.price > 0
-    ? poolInfo.price
-    : liveStats && liveStats.price > 0 ? liveStats.price : token.price || 0.000001;
-  const holders = liveStats ? liveStats.holders : token.holders || 1;
-  const volume24h = liveStats ? liveStats.volume24h : token.volume_24h || 0;
-  const marketCap = price * (token.supply || 0);
-  const positive = (token.change_24h || 0) >= 0;
-
-  const history =
-    liveStats && liveStats.priceHistory && liveStats.priceHistory.length > 1
-      ? liveStats.priceHistory
-      : (() => {
-          const arr = [];
-          const seed = (token.symbol || 'x').charCodeAt(0);
-          let p = price * 0.4;
-          for (let i = 0; i < 40; i++) {
-            p = p * (1 + (((seed + i * 7) % 10) / 10 - 0.45) * 0.25);
-            arr.push(p);
-          }
-          arr.push(price);
-          return arr;
-        })();
+  // One resolved price drives the header, market cap, cards and trade estimates.
+  const price = market?.price > 0 ? market.price : null;
+  const change24h = stats?.change24h != null ? stats.change24h : null;
+  const positive = (change24h ?? 0) >= 0;
+  const holders = stats ? stats.holders : token.holders ?? null;
+  const volume24h = stats ? stats.volume24h : 0;
+  const marketCap = price != null ? price * (token.supply || 0) : null;
+  const history = stats?.priceHistory || [];
 
   return (
     <div className="min-h-screen bg-[#0a0b0d] text-white max-w-lg mx-auto pb-20">
@@ -117,24 +94,30 @@ export default function TokenDetail() {
             <TokenIcon token={token} size={56} />
           </div>
           <div className="flex items-end gap-2 mt-4">
-            <span className="text-3xl font-bold">{price.toFixed(8)} XLM</span>
-            <span
-              className={`text-sm font-bold pb-1 ${positive ? 'text-[#00ff88]' : 'text-[#ff3b5c]'}`}
-            >
-              {positive ? '+' : ''}
-              {(token.change_24h || 0).toFixed(2)}%
+            <span className="text-3xl font-bold">{price != null ? `${price.toFixed(8)} XLM` : '—'}</span>
+            <span className={`text-sm font-bold pb-1 ${change24h == null ? 'text-white/30' : positive ? 'text-[#00ff88]' : 'text-[#ff3b5c]'}`}>
+              {change24h == null ? '—' : `${positive ? '+' : ''}${change24h.toFixed(2)}%`}
             </span>
           </div>
+          <p className="text-[11px] text-white/40 mt-1">
+            {price != null && market?.buyRoute
+              ? `Best buy via ${ROUTE_LABEL[market.buyRoute]} · 24h change vs first fill today`
+              : 'No liquidity yet — this token has no pool and no open offers.'}
+          </p>
           <div className="mt-3">
-            <SimpleChart data={history} color={positive ? '#00ff88' : '#ff3b5c'} height={80} />
+            {history.length > 1 ? (
+              <SimpleChart data={history} color={positive ? '#00ff88' : '#ff3b5c'} height={80} />
+            ) : (
+              <p className="text-[11px] text-white/30 pt-1">Not enough trades yet for a chart.</p>
+            )}
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
           {[
-            { label: 'Mkt Cap', value: `${(marketCap / 1000).toFixed(1)}K XLM` },
-            { label: 'Holders', value: holders },
-            { label: 'Vol 24h', value: `${(volume24h / 1000).toFixed(1)}K XLM` },
+            { label: 'Mkt Cap', value: marketCap != null ? fmtXlm(marketCap) : '—' },
+            { label: 'Holders', value: holders != null ? holders : '—' },
+            { label: 'Vol 24h', value: fmtXlm(volume24h) },
           ].map((s) => (
             <div key={s.label} className="bg-[#141518] rounded-xl p-3 text-center">
               <div className="text-xs text-white/40">{s.label}</div>
@@ -143,12 +126,10 @@ export default function TokenDetail() {
           ))}
         </div>
 
-        <TokenInfoCards token={token} liveStats={liveStats} poolInfo={poolInfo} orderBook={orderBook} />
+        <TokenInfoCards token={token} stats={stats} market={market} />
 
-        {token.is_auto_pool && poolMissing && (
-          <SeedPoolPanel token={token} onSeeded={load} />
-        )}
-        <TradingPanel token={token} marketPrice={price} onTrade={load} />
+        {token.is_auto_pool && market && !market.pool && <SeedPoolPanel token={token} onSeeded={load} />}
+        <TradingPanel token={token} market={market} onTrade={load} />
         <OpenOrders token={token} refreshKey={ordersKey} />
 
         <div className="bg-[#141518] rounded-2xl p-4">
