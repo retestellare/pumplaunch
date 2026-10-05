@@ -10,6 +10,7 @@ import BottomNav from '@/components/BottomNav';
 import TabStack from '@/components/TabStack';
 import { TAB_PATHS } from '@/lib/tabs';
 import { WalletProvider } from '@/lib/wallet';
+import AddToken from '@/pages/AddToken';
 import TokenDetail from '@/pages/TokenDetail';
 import TokenHolders from '@/pages/TokenHolders';
 import Guide from '@/pages/Guide';
@@ -40,6 +41,7 @@ function AppRoutes() {
           transition={{ duration: 0.24, ease: 'easeOut' }}
         >
           <Routes location={location}>
+            <Route path="/add-token" element={<AddToken />} />
             <Route path="/token/:id" element={<TokenDetail />} />
             <Route path="/token/:id/holders" element={<TokenHolders />} />
             <Route path="/guide" element={<Guide />} />

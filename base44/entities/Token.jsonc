@@ -44,6 +44,10 @@
       "type": "boolean",
       "default": false
     },
+    "is_imported": {
+      "type": "boolean",
+      "default": false
+    },
     "pools": {
       "type": "array",
       "items": {

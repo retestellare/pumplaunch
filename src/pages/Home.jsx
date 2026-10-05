@@ -5,7 +5,7 @@ import TokenCard from '@/components/TokenCard';
 import WalletButton from '@/components/WalletButton';
 import { useWallet } from '@/lib/wallet';
 import { Link } from 'react-router-dom';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Search } from 'lucide-react';
 import NewHoldersToday from '@/components/NewHoldersToday';
 import Leaderboard from '@/components/Leaderboard';
 import { fetchTokenMarket } from '@/lib/market';
@@ -84,6 +84,13 @@ export default function Home() {
       title="Stellar Pump"
       rightAction={
         <div className="flex items-center gap-2">
+          <Link
+            to="/add-token"
+            aria-label="Add a token"
+            className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition"
+          >
+            <Search size={18} className="text-white/70" />
+          </Link>
           <Link to="/guide" className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
             <HelpCircle size={18} className="text-white/70" />
           </Link>
