@@ -49,16 +49,18 @@ import { ImagePlus } from 'lucide-react';
 const DISTRIBUTION_OPTIONS = [
   { value: 100, label: '100% Liquidity', desc: 'All tokens seeded to the DEX bonding curve' },
   { value: 80, label: '80 / 20', desc: 'Keep 20% in your wallet, seed 80% to the DEX' },
-  { value: 50, label: '50 / 50', desc: 'Keep 50% in your wallet, seed 50% to the DEX' },
   { value: 'auto_pool', label: '100% Auto-Pool', desc: '100% of XLM from purchases goes directly into the Stellar Liquidity Pool to automatically support liquidity.' },
 ];
 
-const CURVE_OPTIONS = Object.entries(CURVE_PRESETS).map(([key, p]) => ({
-  value: key,
-  label: p.label,
-  desc: p.desc,
-  meta: `${p.rungs} rungs · ${p.priceStep}× step`,
-}));
+// Only these two paces are offered at launch.
+const CURVE_KEYS = ['slow', 'fast'];
+const CURVE_OPTIONS = CURVE_KEYS.map((key) => {
+  const p = CURVE_PRESETS[key];
+  return { value: key, label: p.label, desc: p.desc, meta: `${p.rungs} rungs · ${p.priceStep}× step` };
+});
+
+// New launches create a single XLM market.
+const LAUNCH_TYPE_OPTIONS = POOL_TYPES.filter((opt) => opt.value === 'xlm');
 
 const STEP_LABELS = STEPS.reduce((acc, s) => ({ ...acc, [s.id]: s.label }), { start: 'Start' });
 
@@ -825,26 +827,15 @@ export default function LaunchToken() {
 
             <OptionGroup
               label="Launch Type"
-              options={POOL_TYPES}
+              options={LAUNCH_TYPE_OPTIONS}
               isSelected={(opt) => poolType === opt.value}
-              onSelect={(opt) => {
-                setPoolType(opt.value);
-                if (opt.value !== 'xlm') setAutoPool(true);
-              }}
+              onSelect={(opt) => setPoolType(opt.value)}
               disabled={blocked}
-              note={
-                poolType !== 'xlm' ? (
-                  <p className="text-[10px] text-white/30 mt-1">
-                    USDC markets launch as liquidity pools with the full supply seeded. 1 USDC ≈{' '}
-                    {xlmPerUsdc > 0 ? xlmPerUsdc.toFixed(2) : '—'} XLM.
-                  </p>
-                ) : null
-              }
             />
 
             <div>
               <label className="text-xs text-white/40 mb-1.5 block">
-                Initial Liquidity ({poolType === 'usdc' ? 'USDC' : 'XLM'})
+                Initial Liquidity (XLM)
                 {autoPool && <span className="text-[#00ff88]"> · required</span>}
               </label>
               <input
@@ -856,16 +847,8 @@ export default function LaunchToken() {
                 className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
               />
               <p className="text-[10px] text-white/30 mt-1">
-                {poolType === 'usdc'
-                  ? 'Minimum 10 USDC to seed the pool.'
-                  : 'Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.'}
+                Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.
               </p>
-              {poolType === 'dual' && (
-                <p className="text-[10px] text-white/40 mt-1">
-                  Needs {(parseFloat(initialLiquidity) / (xlmPerUsdc || 1) || 0).toFixed(2)} USDC for the second pool
-                  {usdcTrustline ? '' : ' — the USDC trustline is added with your launch'}.
-                </p>
-              )}
             </div>
           </div>
 
@@ -877,29 +860,20 @@ export default function LaunchToken() {
               </p>
             </div>
 
-            {poolType !== 'xlm' ? (
-              <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3">
-                <p className="text-xs text-white/60">
-                  100% of the supply is seeded into {poolCount === 2 ? 'both liquidity pools' : 'the liquidity pool'} at
-                  launch — USDC markets are pool-only.
-                </p>
-              </div>
-            ) : (
-              <OptionGroup
-                label="Distribution"
-                options={DISTRIBUTION_OPTIONS}
-                isSelected={(opt) => (opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value)}
-                onSelect={(opt) => {
-                  if (opt.value === 'auto_pool') {
-                    setAutoPool(true);
-                  } else {
-                    setAutoPool(false);
-                    setLiquidity(opt.value);
-                  }
-                }}
-                disabled={blocked}
-              />
-            )}
+            <OptionGroup
+              label="Distribution"
+              options={DISTRIBUTION_OPTIONS}
+              isSelected={(opt) => (opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value)}
+              onSelect={(opt) => {
+                if (opt.value === 'auto_pool') {
+                  setAutoPool(true);
+                } else {
+                  setAutoPool(false);
+                  setLiquidity(opt.value);
+                }
+              }}
+              disabled={blocked}
+            />
 
             {!autoPool && (
               <OptionGroup
@@ -909,7 +883,7 @@ export default function LaunchToken() {
                 onSelect={(opt) => setCurve(opt.value)}
                 disabled={blocked}
                 note={
-                  curve === 'fast' || curve === 'hyper' ? (
+                  curve === 'fast' ? (
                     <div className="mt-2 bg-[#ff3b5c]/5 border border-[#ff3b5c]/20 rounded-xl px-3 py-2">
                       <p className="text-xs text-white/60">
                         ⚠ Prices rise sharply after early buys — later buyers pay much more.

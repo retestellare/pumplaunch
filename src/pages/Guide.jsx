@@ -80,14 +80,14 @@ const SECTIONS = [
   {
     icon: Layers,
     title: 'Launching — Market & Pool',
-    desc: 'Pick which Stellar market your token trades in: Single Pool (XLM), Single Pool (USDC), or Dual Pool (XLM & USDC). Initial Liquidity is what you seed into the pool.',
-    tip: 'Minimum 10 XLM (50+ recommended). USDC and dual launches are pool-only and need the matching USDC amount — the trustline is added for you during the launch.',
+    desc: 'New launches create a Single Pool against XLM. Initial Liquidity is the amount you seed into the pool when the token launches.',
+    tip: 'Minimum 10 XLM — 50 or more recommended for lower initial price slippage. Tokens that already trade against USDC keep that market.',
   },
   {
     icon: TrendingUp,
     title: 'Launching — Supply Distribution & Curve',
-    desc: '100% Liquidity seeds the whole supply onto the DEX bonding curve, 80/20 and 50/50 keep part in your wallet, and 100% Auto-Pool sends all of it into the Stellar liquidity pool. Curve launches also choose a pace: Slow, Medium, Fast or Hyper.',
-    tip: 'Faster curves raise the price more aggressively after early buys — Hyper can leave late buyers paying far more.',
+    desc: '100% Liquidity seeds the whole supply onto the DEX bonding curve, 80/20 keeps 20% in your wallet and seeds the rest, and 100% Auto-Pool sends all of it into the Stellar liquidity pool. Curve launches also choose a pace: Slow or Fast.',
+    tip: 'Fast raises the price more aggressively after early buys, so later buyers pay more.',
   },
   {
     icon: RefreshCw,

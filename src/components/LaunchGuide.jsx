@@ -21,23 +21,23 @@ const SECTIONS = [
   {
     title: 'Markets & pools',
     items: [
-      'Single Pool (XLM) can launch as a bonding curve or a liquidity pool. USDC and Dual (XLM + USDC) launches are always pool launches.',
-      'Initial liquidity seeds the pool(s): 10 XLM minimum, 50+ recommended. A dual launch needs the matching USDC amount too.',
-      'Trading or launching in a USDC market adds the USDC trustline automatically the first time.',
+      'Every new launch creates a Single Pool (XLM) market — as a bonding curve or as a liquidity pool.',
+      'Initial liquidity seeds the pool: 10 XLM minimum, 50+ recommended.',
+      'Tokens launched here are XLM-only. An existing token that trades against USDC adds the USDC trustline automatically the first time you trade it.',
     ],
   },
   {
     title: 'Supply & distribution',
     items: [
       'Total supply is fixed at launch and can never be increased (the issuer is permanently locked).',
-      '100% Liquidity seeds all tokens to the DEX; 80/20 or 50/50 keeps part in your wallet.',
+      '100% Liquidity seeds all tokens to the DEX; 80/20 keeps 20% in your wallet.',
       'Auto-Pool mode derives supply from your initial liquidity — more XLM in = more tokens.',
     ],
   },
   {
     title: 'Initial liquidity',
     items: [
-      'Minimum 10 XLM (or 10 USDC for a USDC pool); 50+ recommended to reduce early price slippage.',
+      'Minimum 10 XLM; 50+ recommended to reduce early price slippage.',
       'For Auto-Pool, this XLM goes straight into the Stellar liquidity pool.',
       'Too little liquidity = huge price swings on the first trades.',
     ],
@@ -47,7 +47,7 @@ const SECTIONS = [
     items: [
       'When you launch, your tokens + XLM are seeded as sell offers on the DEX (a bonding curve) or into a liquidity pool.',
       'The first buyer sends XLM and receives tokens at the lowest price rung; each following buy climbs to the next rung, so price rises with demand.',
-      'Bonding curve mode: price steps up in fixed rungs (Slow = gentle, Hyper = steep spikes). Pool mode: price shifts by supply/demand ratio.',
+      'Bonding curve mode: price steps up in fixed rungs (Slow = gentle climb, Fast = quicker). Pool mode: price shifts by supply/demand ratio.',
       'Sellers do the reverse — they send tokens back for XLM, which walks the price down the rungs.',
       'Your initial liquidity sets the starting price and how much the price jumps per trade. Bigger liquidity = smoother, safer early trading.',
       'Graduation (the GRAD badge) means a token has enough activity to be considered established on the market.',
@@ -66,7 +66,7 @@ const SECTIONS = [
     items: [
       'Launching with the same symbol twice — resume instead of re-launching to avoid duplicate orphan tokens.',
       'Setting a tiny liquidity amount leading to instant moon then crash.',
-      'Picking a "hyper" curve so early buyers dump on later ones.',
+      'Picking the Fast curve so early buyers dump on later ones.',
       'Closing the page mid-launch — your progress is saved; just hit Resume.',
     ],
   },
