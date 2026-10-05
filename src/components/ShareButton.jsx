@@ -18,15 +18,20 @@ export default function ShareButton({ payload, imageFile, label = 'Share', varia
     setBusy(false);
   };
 
-  if (variant === 'icon') {
+  if (variant === 'icon' || variant === 'flat') {
+    const flat = variant === 'flat';
     return (
       <button
         onClick={handleShare}
         disabled={busy}
         aria-label="Share"
-        className={`p-2 rounded-xl bg-white/5 text-white/70 hover:bg-white/10 transition disabled:opacity-50 ${className}`}
+        className={`${
+          flat
+            ? 'flex items-center gap-1.5 text-xs text-white/50'
+            : 'p-2 rounded-xl bg-white/5 text-white/70 hover:bg-white/10 transition'
+        } disabled:opacity-50 ${className}`}
       >
-        <Share2 size={18} />
+        <Share2 size={flat ? 16 : 18} />
       </button>
     );
   }

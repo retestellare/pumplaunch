@@ -61,6 +61,17 @@ export function launchShare({ id, symbol, name }) {
   };
 }
 
+export function postShare({ post, author }) {
+  const body = (post?.content || '').trim();
+  const snippet = body.length > 140 ? `${body.slice(0, 139).trimEnd()}…` : body;
+  const symbol = post?.token_symbol ? `$${post.token_symbol}` : '';
+  return {
+    title: symbol ? `${symbol} on ${APP_NAME}` : `Post on ${APP_NAME}`,
+    text: [snippet, symbol && `📈 ${symbol}`, author].filter(Boolean).join(' · '),
+    url: absoluteUrl(`/profile/${post?.author ?? ''}`),
+  };
+}
+
 // Returns 'shared' | 'copied' | 'cancelled' | 'failed' so callers can decide
 // whether a follow-up message is needed.
 // `imageFile` (the token's generated preview card) rides along when the device

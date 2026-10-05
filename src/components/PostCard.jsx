@@ -4,6 +4,8 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { Heart, MessageCircle } from 'lucide-react';
 import Avatar from '@/components/Avatar';
+import ShareButton from '@/components/ShareButton';
+import { postShare } from '@/lib/share';
 import { shortAddr, displayName } from '@/lib/profiles';
 
 export default function PostCard({ post, onChange, profileMap = {} }) {
@@ -98,6 +100,11 @@ export default function PostCard({ post, onChange, profileMap = {} }) {
         <button onClick={toggleComments} className="flex items-center gap-1.5 text-xs text-white/50">
           <MessageCircle size={16} /> {post.comments_count || 0}
         </button>
+        <ShareButton
+          variant="flat"
+          className="ml-auto"
+          payload={postShare({ post, author: displayName(profileMap[post.author], post.author) })}
+        />
       </div>
       {showComments && (
         <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
