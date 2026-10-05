@@ -13,7 +13,9 @@ import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
 import PoolBadge from '@/components/PoolBadge';
 import ShareButton from '@/components/ShareButton';
+import TokenOgPreview from '@/components/TokenOgPreview';
 import { tokenShare } from '@/lib/share';
+import { ensureOgCard } from '@/lib/ogImage';
 
 function fmtXlm(n, d = 2) {
   if (n == null || isNaN(n)) return '—';
@@ -29,6 +31,7 @@ export default function TokenDetail() {
   const [liveTrades, setLiveTrades] = useState([]);
   const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
   const [ordersKey, setOrdersKey] = useState(0);
+  const [ogCard, setOgCard] = useState(null);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
@@ -38,7 +41,19 @@ export default function TokenDetail() {
     setLiveTrades([]);
     setOrdersKey((k) => k + 1);
 
-    if (!t.issuer || !t.asset_code) return;
+    // Every token gets its own share preview: generated once, then reused.
+    const cardFor = (s, m) =>
+      ensureOgCard(t, {
+        price: m?.price,
+        change24h: s?.change24h,
+        marketCap: m?.price ? m.price * (t.supply || 0) : null,
+        holders: s?.holders,
+      });
+
+    if (!t.issuer || !t.asset_code) {
+      cardFor(null, null).then(setOgCard).catch(() => {});
+      return;
+    }
 
     // One call resolves every pool the token has, all normalised to XLM.
     const { stats: s, market: m, xlmPerUsdc: rate } = await fetchTokenMarket(t);
@@ -46,6 +61,7 @@ export default function TokenDetail() {
     setMarket(m);
     setXlmPerUsdc(rate);
     setLiveTrades(formatOnChainTrades(s.trades, t.asset_code, t.issuer, 20, rate));
+    cardFor(s, m).then(setOgCard).catch(() => {});
   };
 
   useEffect(() => {
@@ -81,7 +97,12 @@ export default function TokenDetail() {
             <span className="font-bold">${token.symbol}</span>
             <PoolBadge token={token} />
           </div>
-          <ShareButton variant="icon" className="ml-auto" payload={tokenShare({ token, price, change24h })} />
+          <ShareButton
+            variant="icon"
+            className="ml-auto"
+            payload={tokenShare({ token, price, change24h })}
+            imageFile={ogCard?.file}
+          />
         </div>
       </header>
       <main className="p-4 space-y-4">
@@ -130,6 +151,16 @@ export default function TokenDetail() {
             </div>
           ))}
         </div>
+
+        {ogCard?.url && (
+          <TokenOgPreview
+            token={token}
+            url={ogCard.url}
+            imageFile={ogCard.file}
+            price={price}
+            change24h={change24h}
+          />
+        )}
 
         <TokenInfoCards token={token} stats={stats} market={market} />
 

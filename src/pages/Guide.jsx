@@ -124,7 +124,7 @@ const SECTIONS = [
     icon: Share2,
     title: 'Sharing Tokens & Trades',
     desc: 'Share any token from its page, or share a trade right after it fills. On phones this opens your device\u2019s own share sheet — Messages, WhatsApp, X, and everything else installed.',
-    tip: 'Where a share sheet is not available, the message and link are copied to your clipboard instead, ready to paste.',
+    tip: 'Every token gets its own auto-generated preview card that goes out with the share. Where a share sheet is not available, the message and link are copied to your clipboard instead.',
   },
   {
     icon: UserPlus,

@@ -63,9 +63,16 @@ export function launchShare({ id, symbol, name }) {
 
 // Returns 'shared' | 'copied' | 'cancelled' | 'failed' so callers can decide
 // whether a follow-up message is needed.
-export async function sharePayload({ title, text, url, toast }) {
+// `imageFile` (the token's generated preview card) rides along when the device
+// can share files, so the unique visual goes out with the message.
+export async function sharePayload({ title, text, url, imageFile, toast }) {
   if (canWebShare()) {
     try {
+      const files = imageFile ? [imageFile] : null;
+      if (files && navigator.canShare?.({ files })) {
+        await navigator.share({ title, text: `${text} ${url}`, files });
+        return 'shared';
+      }
       await navigator.share({ title, text, url });
       return 'shared';
     } catch (e) {

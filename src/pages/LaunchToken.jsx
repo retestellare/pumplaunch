@@ -10,6 +10,7 @@ import LaunchGuide from '@/components/LaunchGuide';
 import OptionGroup from '@/components/launch/OptionGroup';
 import ShareButton from '@/components/ShareButton';
 import { launchShare } from '@/lib/share';
+import { ensureOgCard } from '@/lib/ogImage';
 import {
   loadAccount,
   parseBalances,
@@ -568,6 +569,21 @@ export default function LaunchToken() {
       }
       setStage('list', 'Listed');
       setStepStatus('list', 'done');
+
+      // Give the new token its own share preview right away.
+      try {
+        await ensureOgCard({
+          id: store.token_id,
+          symbol: sym,
+          name: store.name,
+          description: store.description,
+          image_url: store.image_url,
+          issuer: store.issuer_public_key,
+          supply,
+        });
+      } catch {
+        /* the token page regenerates it if this fails */
+      }
 
       try {
         await base44.entities.Activity.create({

@@ -8,13 +8,13 @@ const VARIANTS = {
   ghost: 'bg-white/5 text-white font-bold',
 };
 
-export default function ShareButton({ payload, label = 'Share', variant = 'solid', className = '' }) {
+export default function ShareButton({ payload, imageFile, label = 'Share', variant = 'solid', className = '' }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
 
   const handleShare = async () => {
     setBusy(true);
-    await sharePayload({ ...payload, toast });
+    await sharePayload({ ...payload, imageFile, toast });
     setBusy(false);
   };
 
