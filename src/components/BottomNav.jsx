@@ -11,7 +11,7 @@ const ITEMS = [
 export default function BottomNav() {
   const { pathname } = useLocation();
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0a0b0d] border-t border-white/10 max-w-lg mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0a0b0d] border-t border-white/10 max-w-lg mx-auto select-none pb-[env(safe-area-inset-bottom)]">
       <div className="flex">
         {ITEMS.map(({ path, label, icon: Icon }) => {
           const active = pathname === path;
@@ -19,7 +19,7 @@ export default function BottomNav() {
             <Link
               key={path}
               to={path}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 transition ${
+              className={`flex-1 flex flex-col items-center gap-1 py-3 transition select-none ${
                 active ? 'text-[#00ff88]' : 'text-white/40'
               }`}
             >

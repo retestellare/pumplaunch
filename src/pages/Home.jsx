@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
 import PageLayout from '@/components/PageLayout';
 import TokenCard from '@/components/TokenCard';
@@ -10,6 +10,7 @@ import NewHoldersToday from '@/components/NewHoldersToday';
 import Leaderboard from '@/components/Leaderboard';
 import { fetchTokenMarket } from '@/lib/market';
 import { mapLimit } from '@/lib/concurrency';
+import PullToRefresh from '@/components/PullToRefresh';
 
 const TABS = [
   { key: 'hot', label: '🔥 Hot' },
@@ -41,27 +42,24 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const list = await base44.entities.Token.list('-created_date', 100);
-      if (!active) return;
-      setAllTokens(list);
-      setLoading(false);
+  const load = useCallback(async () => {
+    const list = await base44.entities.Token.list('-created_date', 100);
+    setAllTokens(list);
+    setLoading(false);
 
-      // Live figures stream in afterwards — the list never waits on Horizon.
-      setEnriching(true);
-      await mapLimit(list.filter((t) => t.issuer && t.asset_code), ENRICH_CONCURRENCY, async (t) => {
-        const { stats, market } = await fetchTokenMarket(t);
-        if (!active || !stats) return;
-        setAllTokens((prev) => prev.map((p) => (p.id === t.id ? enrich(p, stats, market) : p)));
-      });
-      if (active) setEnriching(false);
-    })();
-    return () => {
-      active = false;
-    };
+    // Live figures stream in afterwards — the list never waits on Horizon.
+    setEnriching(true);
+    await mapLimit(list.filter((t) => t.issuer && t.asset_code), ENRICH_CONCURRENCY, async (t) => {
+      const { stats, market } = await fetchTokenMarket(t);
+      if (!stats) return;
+      setAllTokens((prev) => prev.map((p) => (p.id === t.id ? enrich(p, stats, market) : p)));
+    });
+    setEnriching(false);
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const tokens = useMemo(() => {
     const list = [...allTokens];
@@ -93,6 +91,7 @@ export default function Home() {
         </div>
       }
     >
+      <PullToRefresh onRefresh={load} />
       <div className="flex gap-1 p-3 sticky top-14 z-20 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5">
         {TABS.map((t) => (
           <button

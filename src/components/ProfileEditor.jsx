@@ -4,6 +4,7 @@ import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveProfile } from '@/lib/profiles';
 import { X, ImagePlus, Loader2 } from 'lucide-react';
+import DeleteAccountPanel from '@/components/DeleteAccountPanel';
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 
@@ -163,6 +164,8 @@ export default function ProfileEditor({ onDone }) {
           </button>
         </>
       )}
+
+      <DeleteAccountPanel onDeleted={onDone} />
     </div>
   );
 }

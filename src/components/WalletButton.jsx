@@ -43,7 +43,7 @@ export default function WalletButton() {
       <button
         onClick={connect}
         disabled={connecting}
-        className="px-4 py-1.5 rounded-lg bg-[#00ff88] text-black text-sm font-bold disabled:opacity-50"
+        className="px-4 py-1.5 rounded-lg bg-[#00ff88] text-black text-sm font-bold select-none disabled:opacity-50"
       >
         {connecting ? 'Connecting…' : 'Connect'}
       </button>
@@ -54,7 +54,7 @@ export default function WalletButton() {
   return (
     <button
       onClick={disconnect}
-      className="flex flex-col items-end leading-tight px-3 py-1 rounded-lg bg-white/5"
+      className="flex flex-col items-end leading-tight px-3 py-1 rounded-lg bg-white/5 select-none"
     >
       <span className="flex items-baseline gap-1.5">
         <span className="text-sm font-bold text-[#00ff88]">

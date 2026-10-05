@@ -86,6 +86,18 @@
     @apply border-border outline-ring/50;
   }
 
+  /* No rubber-band scroll or tap glow: the app shell scrolls itself and
+     pull-to-refresh is handled in-app. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  /* Tapping chrome never opens a text-selection menu. */
+  button {
+    @apply select-none;
+  }
+
   body {
     @apply bg-background text-foreground font-body;
     background-color: #0a0b0d;
