@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
+import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
 import TokenIcon from '@/components/TokenIcon';
 import SimpleChart from '@/components/SimpleChart';
 import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
-import BottomNav from '@/components/BottomNav';
 import { formatOnChainTrades } from '@/lib/stellar';
 import { fetchTokenMarket, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
@@ -25,6 +25,7 @@ function fmtXlm(n, d = 2) {
 
 export default function TokenDetail() {
   const { id } = useParams();
+  const goBack = useGoBack();
   const [token, setToken] = useState(null);
   const [stats, setStats] = useState(null);
   const [market, setMarket] = useState(null);
@@ -89,9 +90,9 @@ export default function TokenDetail() {
     <div className="min-h-screen bg-[#0a0b0d] text-white max-w-lg mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-30 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-3 px-4 h-14">
-          <Link to="/" className="text-white/70">
+          <button onClick={goBack} aria-label="Back" className="text-white/70">
             <ChevronLeft size={22} />
-          </Link>
+          </button>
           <div className="flex items-center gap-2">
             <TokenIcon token={token} size={28} />
             <span className="font-bold">${token.symbol}</span>
@@ -190,7 +191,6 @@ export default function TokenDetail() {
           )}
         </div>
       </main>
-      <BottomNav />
     </div>
   );
 }

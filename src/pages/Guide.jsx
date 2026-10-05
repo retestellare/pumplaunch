@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import { ChevronLeft, HelpCircle } from 'lucide-react';
-import BottomNav from '@/components/BottomNav';
 import {
   Wallet,
   Rocket,
@@ -189,7 +188,6 @@ export default function Guide() {
           </p>
         </div>
       </main>
-      <BottomNav />
     </div>
   );
 }

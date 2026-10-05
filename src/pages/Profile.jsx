@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
+import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
 import { resolveProfile, resolveProfiles, shortAddr } from '@/lib/profiles';
 import Avatar from '@/components/Avatar';
 import PostCard from '@/components/PostCard';
-import BottomNav from '@/components/BottomNav';
 
 export default function Profile() {
   const { walletAddress } = useParams();
+  const goBack = useGoBack('/social');
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
   const [profileMap, setProfileMap] = useState({});
@@ -41,9 +42,9 @@ export default function Profile() {
     <div className="min-h-screen bg-[#0a0b0d] text-white max-w-lg mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-30 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-3 px-4 h-14">
-          <Link to="/social" className="text-white/70">
+          <button onClick={goBack} aria-label="Back" className="text-white/70">
             <ChevronLeft size={22} />
-          </Link>
+          </button>
           <h1 className="text-lg font-bold tracking-tight">Profile</h1>
         </div>
       </header>
@@ -84,7 +85,6 @@ export default function Profile() {
           </>
         )}
       </main>
-      <BottomNav />
     </div>
   );
 }

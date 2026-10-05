@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
+import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
-import BottomNav from '@/components/BottomNav';
 import TokenIcon from '@/components/TokenIcon';
 
 const HORIZON_URL = 'https://horizon.stellar.org';
@@ -14,6 +14,7 @@ function shortAddr(addr) {
 export default function TokenHolders() {
   const { id } = useParams();
   const [token, setToken] = useState(null);
+  const goBack = useGoBack(token ? `/token/${token.id}` : '/');
   const [holders, setHolders] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -53,9 +54,9 @@ export default function TokenHolders() {
     <div className="min-h-screen bg-[#0a0b0d] text-white max-w-lg mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-30 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-3 px-4 h-14">
-          <Link to={token ? `/token/${token.id}` : '/'} className="text-white/70">
+          <button onClick={goBack} aria-label="Back" className="text-white/70">
             <ChevronLeft size={22} />
-          </Link>
+          </button>
           {token && <TokenIcon token={token} size={24} />}
           <span className="font-bold">
             Holders {token && <span className="text-white/40">· ${token.symbol}</span>}
@@ -92,7 +93,6 @@ export default function TokenHolders() {
           </>
         )}
       </main>
-      <BottomNav />
     </div>
   );
 }
