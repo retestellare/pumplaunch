@@ -47,17 +47,14 @@ export default function TokenInfoCards({ token, stats, market }) {
           }
           sub={change24h == null ? 'Needs two fills in 24h' : null}
         />
-        <Row
-          label="Launch Method"
-          value={token.is_imported ? 'Listed from the network' : token.is_auto_pool ? 'Auto-Pool' : 'Bonding Curve'}
-        />
+        <Row label="Launch Method" value={token.is_auto_pool ? 'Auto-Pool' : 'Bonding Curve'} />
         <Row
           label="Markets"
           value={poolQuotes.length ? poolQuotes.map((q) => (q === 'usdc' ? 'USDC' : 'XLM')).join(' + ') : '—'}
         />
         <Row label="Total Supply" value={`${fmt(supply, 0)} ${token.symbol}`} />
-        {!token.is_imported && <Row label="Liquidity Allocated" value={`${liqPct}%`} />}
-        {!token.is_auto_pool && !token.is_imported && (
+        <Row label="Liquidity Allocated" value={`${liqPct}%`} />
+        {!token.is_auto_pool && (
           <div className="pt-1">
             <div className="text-xs text-white/40 mb-1">Price Curve</div>
             <div className="text-sm font-bold">{curve.label}</div>
