@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Coins,
   UserRound,
+  Share2,
 } from 'lucide-react';
 
 const SECTIONS = [
@@ -118,6 +119,12 @@ const SECTIONS = [
     title: 'Social Feed',
     desc: 'Share trades and thoughts with the community: post text or an image, attach a token, and like or comment on other people\u2019s posts.',
     tip: 'Use the Social tab in the bottom nav. Your connected wallet address is your identity on every post.',
+  },
+  {
+    icon: Share2,
+    title: 'Sharing Tokens & Trades',
+    desc: 'Share any token from its page, or share a trade right after it fills. On phones this opens your device\u2019s own share sheet — Messages, WhatsApp, X, and everything else installed.',
+    tip: 'Where a share sheet is not available, the message and link are copied to your clipboard instead, ready to paste.',
   },
   {
     icon: UserPlus,

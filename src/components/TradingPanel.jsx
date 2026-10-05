@@ -16,6 +16,8 @@ import TriggerPriceModal from '@/components/TriggerPriceModal';
 import PayWithSelector from '@/components/PayWithSelector';
 import { ROUTE_LABEL } from '@/lib/market';
 import { QUOTES, tokenPools, toXlm, USDC_CODE, USDC_ISSUER } from '@/lib/pools';
+import ShareButton from '@/components/ShareButton';
+import { tradeShare } from '@/lib/share';
 
 const LIMIT_PRESETS = [5, 10, 20];
 
@@ -35,6 +37,7 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
   const [usdcTrustline, setUsdcTrustline] = useState(false);
   const [triggerPrice, setTriggerPrice] = useState(0);
   const [showModal, setShowModal] = useState(false);
+  const [lastTrade, setLastTrade] = useState(null);
 
   const isOnChain = !!(token.issuer && token.asset_code);
   const isAutoPool = !!token.is_auto_pool;
@@ -158,6 +161,7 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
       return;
     }
     setConfirm({ amount: amt, estOut });
+    setLastTrade(null);
   };
 
   const execute = async () => {
@@ -217,6 +221,9 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
         }
       }
       toast({ title: mode === 'limit' ? 'Limit order placed!' : `${side === 'buy' ? 'Bought' : 'Sold'} on mainnet!` });
+      if (mode === 'market') {
+        setLastTrade({ side, quoteLabel: quote.label, amount: confirm.amount, received: confirm.estOut });
+      }
       setConfirm(null);
       setAmount('');
       await refreshBalances();
@@ -445,6 +452,16 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
             ? `No ${quote.label} liquidity yet`
             : `${mode === 'limit' ? 'Limit ' : ''}${side === 'buy' ? 'Buy' : 'Sell'} $${token.symbol}`}
         </button>
+      )}
+
+      {lastTrade && (
+        <div className="bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl p-3 space-y-2">
+          <p className="text-xs text-white/60">Trade confirmed on mainnet — let people know.</p>
+          <ShareButton
+            payload={tradeShare({ token, ...lastTrade })}
+            label={`Share my ${lastTrade.side === 'buy' ? 'buy' : 'sell'} of $${token.symbol}`}
+          />
+        </div>
       )}
 
       {showModal && (

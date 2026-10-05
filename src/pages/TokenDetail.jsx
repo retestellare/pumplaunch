@@ -12,6 +12,8 @@ import { fetchTokenMarket, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
 import PoolBadge from '@/components/PoolBadge';
+import ShareButton from '@/components/ShareButton';
+import { tokenShare } from '@/lib/share';
 
 function fmtXlm(n, d = 2) {
   if (n == null || isNaN(n)) return '—';
@@ -79,6 +81,7 @@ export default function TokenDetail() {
             <span className="font-bold">${token.symbol}</span>
             <PoolBadge token={token} />
           </div>
+          <ShareButton variant="icon" className="ml-auto" payload={tokenShare({ token, price, change24h })} />
         </div>
       </header>
       <main className="p-4 space-y-4">

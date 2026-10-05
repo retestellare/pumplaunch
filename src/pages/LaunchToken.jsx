@@ -8,6 +8,8 @@ import WalletButton from '@/components/WalletButton';
 import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
 import LaunchGuide from '@/components/LaunchGuide';
 import OptionGroup from '@/components/launch/OptionGroup';
+import ShareButton from '@/components/ShareButton';
+import { launchShare } from '@/lib/share';
 import {
   loadAccount,
   parseBalances,
@@ -1132,6 +1134,11 @@ export default function LaunchToken() {
             >
               Copy to Clipboard
             </button>
+            <ShareButton
+              className="mt-2"
+              payload={launchShare({ id: tokenId, symbol: form.symbol.toUpperCase(), name: form.name })}
+              label="Share your launch"
+            />
             <button
               onClick={() => navigate(`/token/${tokenId}`)}
               className="w-full mt-2 py-3 rounded-xl bg-white/5 text-white font-bold text-sm"
