@@ -1,5 +1,6 @@
 import { fetchAssetStats, fetchOrderBook, fetchPoolFor, fetchXlmUsdcRate } from '@/lib/stellar';
 import { tokenPools } from '@/lib/pools';
+import { liquidityGrowth } from '@/lib/liquidity';
 
 export const ROUTE_LABEL = { pool: 'Liquidity Pool', book: 'Offers' };
 
@@ -117,5 +118,7 @@ export async function fetchTokenMarket(token) {
     fetchAssetStats(token.asset_code, token.issuer, { quotes, xlmPerUsdc }),
     fetchMarkets(token.asset_code, token.issuer, { quotes, xlmPerUsdc }),
   ]);
-  return { stats, market, xlmPerUsdc };
+  // How deep the token's pools are, and how that depth moved over the last day.
+  const liquidity = liquidityGrowth(market.markets, stats.trades, xlmPerUsdc);
+  return { stats, market, xlmPerUsdc, liquidity };
 }

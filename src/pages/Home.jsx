@@ -9,6 +9,7 @@ import { HelpCircle } from 'lucide-react';
 import NewHoldersToday from '@/components/NewHoldersToday';
 import Leaderboard from '@/components/Leaderboard';
 import { fetchTokenMarket } from '@/lib/market';
+import { byLiquidityGrowth } from '@/lib/liquidity';
 import { mapLimit } from '@/lib/concurrency';
 import PullToRefresh from '@/components/PullToRefresh';
 
@@ -21,13 +22,14 @@ const TABS = [
 const ENRICH_CONCURRENCY = 6;
 const NEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function enrich(token, stats, market) {
+function enrich(token, stats, market, liquidity) {
   const price = market?.price > 0 ? market.price : null;
   return {
     ...token,
     holders: stats.holders || 0,
     volume_24h: stats.volume24h || 0,
     change_24h: stats.change24h,
+    liquidity_change_24h: liquidity?.changePct ?? null,
     price: price != null ? price : token.price,
     market_cap: price != null ? price * (token.supply || 0) : token.market_cap,
   };
@@ -50,9 +52,9 @@ export default function Home() {
     // Live figures stream in afterwards — the list never waits on Horizon.
     setEnriching(true);
     await mapLimit(list.filter((t) => t.issuer && t.asset_code), ENRICH_CONCURRENCY, async (t) => {
-      const { stats, market } = await fetchTokenMarket(t);
+      const { stats, market, liquidity } = await fetchTokenMarket(t);
       if (!stats) return;
-      setAllTokens((prev) => prev.map((p) => (p.id === t.id ? enrich(p, stats, market) : p)));
+      setAllTokens((prev) => prev.map((p) => (p.id === t.id ? enrich(p, stats, market, liquidity) : p)));
     });
     setEnriching(false);
   }, []);
@@ -63,10 +65,12 @@ export default function Home() {
 
   const tokens = useMemo(() => {
     const list = [...allTokens];
+    // Hot ranks by how much a token's pools deepened over the last day — the same
+    // figure each row shows.
     if (tab === 'hot')
       return list.sort(
         (a, b) =>
-          (b.volume_24h || 0) - (a.volume_24h || 0) ||
+          byLiquidityGrowth(a, b) ||
           (b.holders || 0) - (a.holders || 0) ||
           createdTime(b) - createdTime(a)
       );

@@ -4,7 +4,7 @@ import TokenIcon from './TokenIcon';
 import PoolBadge from './PoolBadge';
 
 export default function TokenCard({ token, rank }) {
-  const change = token.change_24h;
+  const change = token.liquidity_change_24h;
   const hasChange = change != null && !isNaN(change);
   const positive = (change ?? 0) >= 0;
   const navigate = useNavigate();
