@@ -601,6 +601,11 @@ export default function LaunchToken() {
       setAttemptRefreshKey((k) => k + 1);
       setTokenId(store.token_id);
 
+      base44.analytics.track({
+        eventName: 'token_launched',
+        properties: { pool: store.pool_type, curve: store.curve, reused_asset: !!store.reused_asset },
+      });
+
       if (customDomain) {
         setTomlText(store.toml_text);
         setStep('toml');

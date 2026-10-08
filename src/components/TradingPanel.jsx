@@ -220,6 +220,10 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
           /* ignore */
         }
       }
+      base44.analytics.track({
+        eventName: 'trade_executed',
+        properties: { mode, side, quote: payWith },
+      });
       toast({ title: mode === 'limit' ? 'Limit order placed!' : `${side === 'buy' ? 'Bought' : 'Sold'} on mainnet!` });
       if (mode === 'market') {
         setLastTrade({ side, quoteLabel: quote.label, amount: confirm.amount, received: confirm.estOut });
