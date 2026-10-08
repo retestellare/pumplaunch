@@ -233,6 +233,24 @@ function drawCard(ctx, token, stats, bitmap, seed) {
   ctx.fillStyle = 'rgba(255,255,255,0.34)';
   ctx.font = `400 24px ${FONT}`;
   ctx.fillText('Launch & trade memecoins on the Stellar DEX', PAD, H - 48);
+
+  // Corner watermark: a dark pill keeps the label legible over any token logo
+  // or glow colour. Drawn last so it sits above the faint symbol fill.
+  const mark = 'launched on Stellar Pump';
+  ctx.font = `600 22px ${FONT}`;
+  const markW = ctx.measureText(mark).width + 34;
+  const markH = 40;
+  const markX = W - PAD - markW;
+  const markY = H - 57 - markH / 2;
+  ctx.fillStyle = 'rgba(10,11,13,0.55)';
+  roundRect(ctx, markX, markY, markW, markH, markH / 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(mark, markX + 17, markY + markH / 2 + 1);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 }
 
 async function renderCard(token, stats) {
