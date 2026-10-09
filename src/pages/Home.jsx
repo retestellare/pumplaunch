@@ -12,6 +12,12 @@ import { fetchTokenMarket } from '@/lib/market';
 import { byLiquidityGrowth } from '@/lib/liquidity';
 import { mapLimit } from '@/lib/concurrency';
 import PullToRefresh from '@/components/PullToRefresh';
+import NftDropList from '@/components/nft/NftDropList';
+
+const MODES = [
+  { key: 'coins', label: 'Memecoins' },
+  { key: 'nft', label: 'NFT Drops' },
+];
 
 const TABS = [
   { key: 'hot', label: '🔥 Hot' },
@@ -39,6 +45,7 @@ const createdTime = (t) => new Date(t.created_date).getTime();
 
 export default function Home() {
   const { wallet } = useWallet();
+  const [mode, setMode] = useState('coins');
   const [tab, setTab] = useState('hot');
   const [allTokens, setAllTokens] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -96,20 +103,39 @@ export default function Home() {
       }
     >
       <PullToRefresh onRefresh={load} />
-      <div className="flex gap-1 p-3 sticky top-14 z-20 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${
-              tab === t.key ? 'bg-[#00ff88] text-black' : 'bg-white/5 text-white/60'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="sticky top-14 z-20 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5">
+        <div className="flex gap-1 p-1 m-3 mb-2 rounded-xl bg-white/5">
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              onClick={() => setMode(m.key)}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${
+                mode === m.key ? 'bg-white/10 text-white' : 'text-white/40'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {mode === 'coins' && (
+          <div className="flex gap-1 px-3 pb-3">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${
+                  tab === t.key ? 'bg-[#00ff88] text-black' : 'bg-white/5 text-white/60'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      {loading ? (
+      {mode === 'nft' ? (
+        <NftDropList />
+      ) : loading ? (
         <div className="flex justify-center py-20">
           <div className="w-8 h-8 border-2 border-white/10 border-t-[#00ff88] rounded-full animate-spin" />
         </div>
@@ -122,7 +148,7 @@ export default function Home() {
           ))}
         </div>
       )}
-      {allTokens.length > 0 && (
+      {mode === 'coins' && allTokens.length > 0 && (
         <div className="px-3 pt-4 space-y-3">
           <NewHoldersToday tokens={allTokens} />
           <Leaderboard tokens={allTokens} walletAddress={wallet?.address} />

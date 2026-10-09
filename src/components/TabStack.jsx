@@ -5,12 +5,14 @@ import { TAB_PATHS } from '@/lib/tabs';
 import Home from '@/pages/Home';
 import Social from '@/pages/Social';
 import LaunchToken from '@/pages/LaunchToken';
+import LaunchNft from '@/pages/LaunchNft';
 import Portfolio from '@/pages/Portfolio';
 
 const TABS = [
   { path: '/', element: <Home /> },
   { path: '/social', element: <Social /> },
   { path: '/launch', element: <LaunchToken /> },
+  { path: '/launch-nft', element: <LaunchNft /> },
   { path: '/portfolio', element: <Portfolio /> },
 ];
 

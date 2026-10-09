@@ -1,0 +1,72 @@
+{
+  "name": "NftCollection",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "edition_type": {
+      "type": "string",
+      "enum": [
+        "unique",
+        "limited"
+      ],
+      "default": "unique"
+    },
+    "total_supply": {
+      "type": "number",
+      "default": 1
+    },
+    "minted_count": {
+      "type": "number",
+      "default": 0
+    },
+    "mint_price": {
+      "type": "number",
+      "default": 0
+    },
+    "quote": {
+      "type": "string",
+      "enum": [
+        "xlm",
+        "usdc"
+      ],
+      "default": "xlm"
+    },
+    "royalty_percent": {
+      "type": "number",
+      "default": 0
+    },
+    "media_url": {
+      "type": "string"
+    },
+    "metadata_url": {
+      "type": "string"
+    },
+    "metadata_json": {
+      "type": "string"
+    },
+    "creator": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "live",
+        "sold_out",
+        "paused"
+      ],
+      "default": "live"
+    }
+  },
+  "required": [
+    "name",
+    "symbol"
+  ]
+}

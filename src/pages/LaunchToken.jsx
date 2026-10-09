@@ -47,6 +47,7 @@ import {
   clearAttempt,
   getIssuerSecret,
 } from '@/lib/launchAttempts';
+import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
 import { ImagePlus } from 'lucide-react';
 
 const DISTRIBUTION_OPTIONS = [
@@ -710,6 +711,7 @@ export default function LaunchToken() {
     <PageLayout title="Launch Token" rightAction={<WalletButton />}>
       {step === 'form' ? (
         <div className="p-4 space-y-4">
+          <LaunchTypeSwitch value="/launch" />
           <LaunchGuide />
           {stallLoading ? (
             <div className="text-center text-white/40 text-sm py-4">Checking for unfinished launches…</div>
