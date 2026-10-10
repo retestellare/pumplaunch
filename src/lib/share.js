@@ -94,6 +94,62 @@ export async function sharePayload({ title, text, url, imageFile, toast }) {
   return copyShare({ text, url, toast });
 }
 
+// Which edition a purchase claimed, so the post and the UI agree on the number.
+export function mintedEditionNumber(collection, edition) {
+  const total = Math.max(1, collection?.total_supply || 1);
+  return Math.min(total, edition || collection?.minted_count || 1);
+}
+
+function shorten(text, max = 150) {
+  const body = (text || '').trim();
+  return body.length > max ? `${body.slice(0, max - 1).trimEnd()}…` : body;
+}
+
+// A mint is a purchase worth bragging about, so the collection's own
+// description travels with the message.
+export function nftMintShare({ collection, edition }) {
+  const total = Math.max(1, collection?.total_supply || 1);
+  const number = mintedEditionNumber(collection, edition);
+  const price = parseFloat(collection?.mint_price) || 0;
+  const quote = String(collection?.quote || 'xlm').toUpperCase();
+  return {
+    title: `${collection?.name} — edition #${number}`,
+    text: [
+      `🔥 Just minted edition #${number} of ${total} — ${collection?.name} ($${collection?.symbol})`,
+      price > 0 ? `Minted for ${price.toLocaleString()} ${quote} on the Stellar DEX` : null,
+      shorten(collection?.description),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    url: absoluteUrl('/'),
+  };
+}
+
+// Pulls the artwork off the collection so the native share sheet can send the
+// actual picture with the post. Cross-origin art the browser refuses to hand
+// over just means the message goes without it.
+export async function imageFileFromUrl(url, filename) {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (!blob.type.startsWith('image/')) return null;
+    const ext = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+    return new File([blob], filename || `artwork.${ext}`, { type: blob.type });
+  } catch {
+    return null;
+  }
+}
+
+export function xShareUrl({ text, url }) {
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+}
+
+export function telegramShareUrl({ text, url }) {
+  return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+}
+
 export async function copyShare({ text, url, toast }) {
   try {
     await navigator.clipboard.writeText([text, url].filter(Boolean).join(' '));

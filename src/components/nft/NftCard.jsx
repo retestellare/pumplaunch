@@ -6,6 +6,7 @@ import { fmtMintPrice, editionLabel, mintProgress } from '@/lib/nft';
 import { estimateMintCost, fetchCollectionState, isOnChain, mintNft } from '@/lib/nftLaunch';
 import { loadAccount } from '@/lib/stellar';
 import MintProgress from './MintProgress';
+import NftMintShare from './NftMintShare';
 import { Sparkles } from 'lucide-react';
 
 export default function NftCard({ collection, onMinted }) {
@@ -14,6 +15,7 @@ export default function NftCard({ collection, onMinted }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [cost, setCost] = useState(null);
+  const [mintedEdition, setMintedEdition] = useState(null);
   const { minted, soldOut } = mintProgress(collection);
   const onChain = isOnChain(collection);
 
@@ -67,6 +69,7 @@ export default function NftCard({ collection, onMinted }) {
       const res = await mintNft({ address: wallet.address, collection });
       onMinted?.(res.collection || collection);
       setConfirming(false);
+      setMintedEdition(res.minted);
       toast({
         title: `Edition #${res.minted} minted`,
         description: `$${collection.symbol} — ${res.minted} / ${res.total}, delivered on Stellar Mainnet.`,
@@ -133,6 +136,10 @@ export default function NftCard({ collection, onMinted }) {
           </button>
         )}
       </div>
+
+      {mintedEdition && !confirming && (
+        <NftMintShare collection={{ ...collection, minted_count: minted }} edition={mintedEdition} />
+      )}
 
       {confirming && (
         <div className="bg-black/30 rounded-xl p-3 space-y-2 border border-[#00ff88]/20">
