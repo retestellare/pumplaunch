@@ -10,7 +10,15 @@ import OptionGroup from '@/components/launch/OptionGroup';
 import NftMediaUpload from '@/components/nft/NftMediaUpload';
 import { Image } from '@/components/ui/image';
 import { EDITION_TYPES, QUOTES, MAX_SUPPLY, buildMetadata, editionLabel, fmtMintPrice } from '@/lib/nft';
-import { Check } from 'lucide-react';
+import {
+  MIN_MINT_PRICE,
+  estimateCollectionLaunchCost,
+  explorerAssetUrl,
+  launchCollectionOnChain,
+} from '@/lib/nftLaunch';
+import { loadAccount, parseBalances } from '@/lib/stellar';
+import NftLaunchReview from '@/components/nft/NftLaunchReview';
+import { Check, ExternalLink } from 'lucide-react';
 
 const MIN_SYMBOL = 3;
 const MAX_SYMBOL = 8;
@@ -32,68 +40,109 @@ export default function LaunchNft() {
   const [mediaPreview, setMediaPreview] = useState(null);
   const [launching, setLaunching] = useState(false);
   const [launched, setLaunched] = useState(null);
+  const [phase, setPhase] = useState('form');
+  const [progressLabel, setProgressLabel] = useState('');
+  const [draft, setDraft] = useState(null);
+  const [error, setError] = useState('');
+  const [availableXlm, setAvailableXlm] = useState(null);
 
   const supply = editionType === 'unique' ? 1 : Math.min(MAX_SUPPLY, parseInt(totalSupply, 10) || 0);
-  const price = parseFloat(mintPrice) || 0;
+  // A DEX offer prices at 7 decimals, so the price the sale holds is the price
+  // every mint pays.
+  const price = Math.round((parseFloat(mintPrice) || 0) * 1e7) / 1e7;
   const royaltyPct = Math.min(50, Math.max(0, parseFloat(royalty) || 0));
   const symbolOk = form.symbol.length >= MIN_SYMBOL && form.symbol.length <= MAX_SYMBOL;
   const supplyOk = editionType === 'unique' || (parseInt(totalSupply, 10) || 0) >= 2;
-  const canLaunch = !!wallet && form.name.trim().length > 1 && symbolOk && supplyOk && !launching;
+  const priceOk = price >= MIN_MINT_PRICE;
+  const cost = estimateCollectionLaunchCost({ quote });
+  const canLaunch = !!wallet && form.name.trim().length > 1 && symbolOk && supplyOk && priceOk && !launching;
 
+  const review = async () => {
+    setError('');
+    setAvailableXlm(null);
+    setPhase('review');
+    const account = await loadAccount(wallet.address).catch(() => null);
+    setAvailableXlm(account ? parseBalances(account).availableXlm : 0);
+  };
+
+  // The collection is a real Stellar asset: the creator's wallet creates the
+  // issuer, the issuer seals the edition size and hands over the whole supply,
+  // and the primary sale goes live as one DEX sell order at the mint price.
   const launch = async () => {
     setLaunching(true);
+    setError('');
+    setPhase('launching');
     try {
-      let mediaUrl = '';
-      if (mediaFile) {
-        const { file_url } = await base44.integrations.Core.UploadPublicFile({ file: mediaFile });
-        mediaUrl = file_url;
+      let collection = draft;
+      if (!collection) {
+        let mediaUrl = '';
+        if (mediaFile) {
+          const { file_url } = await base44.integrations.Core.UploadPublicFile({ file: mediaFile });
+          mediaUrl = file_url;
+        }
+
+        const metadata = buildMetadata({
+          name: form.name.trim(),
+          symbol: form.symbol,
+          description: form.description.trim(),
+          mediaUrl,
+          totalSupply: supply,
+          editionType,
+          royalty: royaltyPct,
+          mintPrice: price,
+          quote,
+        });
+        const metadataJson = JSON.stringify(metadata, null, 2);
+        const metadataFile = new File([metadataJson], `${form.symbol.toLowerCase()}-metadata.json`, {
+          type: 'application/json',
+        });
+        const { file_url: metadataUrl } = await base44.integrations.Core.UploadPublicFile({ file: metadataFile });
+
+        collection = await base44.entities.NftCollection.create({
+          name: metadata.name,
+          symbol: metadata.symbol,
+          description: metadata.description,
+          edition_type: editionType,
+          total_supply: supply,
+          minted_count: 0,
+          mint_price: price,
+          quote,
+          royalty_percent: royaltyPct,
+          media_url: mediaUrl,
+          metadata_url: metadataUrl,
+          metadata_json: metadataJson,
+          creator: wallet.address,
+          status: 'live',
+        });
+        setDraft(collection);
       }
 
-      const metadata = buildMetadata({
-        name: form.name.trim(),
-        symbol: form.symbol,
-        description: form.description.trim(),
-        mediaUrl,
-        totalSupply: supply,
-        editionType,
-        royalty: royaltyPct,
-        mintPrice: price,
+      const chain = await launchCollectionOnChain({
+        address: wallet.address,
+        symbol: collection.symbol,
+        supply,
+        price,
         quote,
+        onStep: setProgressLabel,
       });
-      const metadataJson = JSON.stringify(metadata, null, 2);
-      const metadataFile = new File([metadataJson], `${form.symbol.toLowerCase()}-metadata.json`, {
-        type: 'application/json',
-      });
-      const { file_url: metadataUrl } = await base44.integrations.Core.UploadPublicFile({ file: metadataFile });
 
-      const collection = await base44.entities.NftCollection.create({
-        name: metadata.name,
-        symbol: metadata.symbol,
-        description: metadata.description,
-        edition_type: editionType,
-        total_supply: supply,
-        minted_count: 0,
-        mint_price: price,
-        quote,
-        royalty_percent: royaltyPct,
-        media_url: mediaUrl,
-        metadata_url: metadataUrl,
-        metadata_json: metadataJson,
-        creator: wallet.address,
-        status: 'live',
+      const saved = await base44.entities.NftCollection.update(collection.id, {
+        asset_code: chain.assetCode,
+        issuer_public_key: chain.issuerPublicKey,
+        home_domain: chain.homeDomain,
+        offer_id: chain.offerId || '',
       });
 
       base44.analytics.track({
         eventName: 'nft_collection_launched',
         properties: { symbol: collection.symbol, edition_type: editionType, supply },
       });
-      setLaunched(collection);
+      setLaunched(saved || { ...collection, ...chain });
     } catch (e) {
-      toast({
-        title: 'Could not launch the collection',
-        description: e?.message || 'Please try again.',
-        variant: 'destructive',
-      });
+      // The collection record and the issuer key survive, so the retry resumes
+      // the on-chain steps instead of starting a second collection.
+      setError(e?.message || 'The launch did not complete.');
+      setPhase('review');
     } finally {
       setLaunching(false);
     }
@@ -109,7 +158,52 @@ export default function LaunchNft() {
     setMediaFile(null);
     setMediaPreview(null);
     setLaunched(null);
+    setPhase('form');
+    setProgressLabel('');
+    setDraft(null);
+    setError('');
+    setAvailableXlm(null);
   };
+
+  if (phase === 'launching') {
+    return (
+      <PageLayout title="Launch NFT" rightAction={<WalletButton />}>
+        <div className="p-4 space-y-4">
+          <LaunchTypeSwitch value="/launch-nft" />
+          <div className="bg-[#141518] rounded-2xl p-6 flex flex-col items-center gap-3 text-center">
+            <div className="w-8 h-8 border-2 border-white/10 border-t-[#00ff88] rounded-full animate-spin" />
+            <p className="text-sm font-bold">{progressLabel || 'Starting…'}</p>
+            <p className="text-[10px] text-white/40">
+              Approve each transaction in your wallet. Stellar Mainnet confirms in about five seconds.
+            </p>
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
+
+  if (phase === 'review') {
+    return (
+      <PageLayout title="Launch NFT" rightAction={<WalletButton />}>
+        <div className="p-4 space-y-4">
+          <LaunchTypeSwitch value="/launch-nft" />
+          <NftLaunchReview
+            name={form.name.trim()}
+            symbol={form.symbol}
+            supply={supply}
+            price={price}
+            quote={quote}
+            cost={cost}
+            availableXlm={availableXlm}
+            error={error}
+            retrying={!!draft}
+            onConfirm={launch}
+            onBack={() => setPhase('form')}
+          />
+        </div>
+      </PageLayout>
+    );
+  }
 
   if (launched) {
     return (
@@ -150,6 +244,34 @@ export default function LaunchNft() {
             <pre className="text-[10px] leading-relaxed text-white/50 bg-black/30 rounded-xl p-3 overflow-auto max-h-64">
               {launched.metadata_json}
             </pre>
+          </div>
+
+          <div className="bg-[#141518] rounded-2xl p-4 space-y-2">
+            <h3 className="text-sm font-bold">On Stellar Mainnet</h3>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/40">Asset</span>
+              <span className="font-mono">{launched.asset_code}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/40">Issuer</span>
+              <span className="font-mono">
+                {launched.issuer_public_key?.slice(0, 6)}…{launched.issuer_public_key?.slice(-6)}
+              </span>
+            </div>
+            <p className="text-[10px] text-white/30">
+              The edition size is sealed by the network — the issuer key was zeroed as the supply was issued, so
+              no further pieces can ever exist. The whole edition now sits in one sell order at your mint price.
+            </p>
+            {launched.asset_code && launched.issuer_public_key && (
+              <a
+                href={explorerAssetUrl(launched)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#00ff88] pt-1"
+              >
+                View the collection on Stellar Expert <ExternalLink size={12} />
+              </a>
+            )}
           </div>
 
           <button
@@ -253,9 +375,17 @@ export default function LaunchNft() {
               min={0}
               value={mintPrice}
               onChange={(e) => setMintPrice(e.target.value)}
-              placeholder="0 for a free mint"
+              placeholder="e.g. 50"
               className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
             />
+            {mintPrice !== '' && !priceOk && (
+              <p className="text-[10px] text-[#ff3b5c] mt-1">
+                On-chain launches need a price of at least {MIN_MINT_PRICE} {quote.toUpperCase()} per edition.
+              </p>
+            )}
+            <p className="text-[10px] text-white/30 mt-1">
+              This price becomes a live sell order on the Stellar DEX — collectors pay it directly to you.
+            </p>
           </div>
 
           <div>
@@ -292,11 +422,11 @@ export default function LaunchNft() {
         </div>
 
         <button
-          onClick={launch}
+          onClick={review}
           disabled={!canLaunch}
           className="w-full py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-40"
         >
-          {launching ? 'Launching…' : 'Create & Launch NFT Collection'}
+          Review &amp; launch on Mainnet
         </button>
         {!wallet && <p className="text-center text-xs text-white/40">Connect your wallet to launch a collection.</p>}
       </div>

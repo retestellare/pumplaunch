@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import NftCard from './NftCard';
+import { mapLimit } from '@/lib/concurrency';
+import { fetchCollectionState, isOnChain } from '@/lib/nftLaunch';
 
 export default function NftDropList() {
   const [collections, setCollections] = useState(null);
@@ -9,6 +11,25 @@ export default function NftDropList() {
   const load = useCallback(async () => {
     const list = await base44.entities.NftCollection.list('-created_date', 100);
     setCollections(list);
+
+    // On-chain collections report their real progress: the sale offer holds what
+    // is left, so the bars can never drift from the network.
+    const chain = list.filter(isOnChain);
+    if (chain.length === 0) return;
+    const states = await mapLimit(chain, 4, (c) => fetchCollectionState(c));
+    setCollections((prev) =>
+      prev.map((c) => {
+        const i = chain.findIndex((x) => x.id === c.id);
+        const state = i === -1 ? null : states[i];
+        if (!state) return c;
+        const minted = Math.min(c.total_supply || 1, Math.max(c.minted_count || 0, state.minted));
+        return {
+          ...c,
+          minted_count: minted,
+          status: minted >= (c.total_supply || 1) ? 'sold_out' : c.status,
+        };
+      })
+    );
   }, []);
 
   useEffect(() => {

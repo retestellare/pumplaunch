@@ -63,6 +63,18 @@
         "paused"
       ],
       "default": "live"
+    },
+    "asset_code": {
+      "type": "string"
+    },
+    "issuer_public_key": {
+      "type": "string"
+    },
+    "home_domain": {
+      "type": "string"
+    },
+    "offer_id": {
+      "type": "string"
     }
   },
   "required": [

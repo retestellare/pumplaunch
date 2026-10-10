@@ -109,3 +109,14 @@ export function getIssuerSecret(walletAddress, symbol) {
     return null;
   }
 }
+
+// The issuer key of a launch in flight. It stays in this browser only — never in
+// the database — so a retry can pick the same issuer back up instead of
+// stranding a half-created asset.
+export function setIssuerSecret(walletAddress, symbol, secret) {
+  try {
+    localStorage.setItem(secretKey(walletAddress, symbol), secret);
+  } catch {
+    /* storage unavailable */
+  }
+}
