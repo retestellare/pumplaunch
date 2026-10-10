@@ -94,12 +94,25 @@ export default function Portfolio() {
         /* ignore */
       }
 
+      // A collection's editions are a Stellar asset too, so its artwork belongs
+      // on the same wallet row as the balance.
+      let nftMap = {};
+      try {
+        const collections = await base44.entities.NftCollection.list('-created_date', 300);
+        for (const c of collections) {
+          if (c.issuer_public_key) nftMap[c.issuer_public_key] = c;
+        }
+      } catch {
+        /* ignore */
+      }
+
       for (let i = 0; i < balances.assets.length; i++) {
         if (!active) return;
         const a = balances.assets[i];
         let enriched = { ...a, symbol: a.code };
 
         const appToken = tokenMap[a.issuer];
+        const appNft = nftMap[a.issuer];
         if (appToken) {
           enriched = {
             ...a,
@@ -107,6 +120,14 @@ export default function Portfolio() {
             name: appToken.name,
             domain: appToken.custom_domain || appToken.home_domain,
             symbol: appToken.symbol,
+          };
+        } else if (appNft) {
+          enriched = {
+            ...a,
+            image_url: appNft.media_url,
+            name: appNft.name,
+            domain: appNft.home_domain,
+            symbol: a.code,
           };
         } else {
           const meta = await fetchTokenMetadata(a.code, a.issuer);

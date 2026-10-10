@@ -138,6 +138,7 @@ export default function LaunchNft() {
         properties: { symbol: collection.symbol, edition_type: editionType, supply },
       });
       setLaunched(saved || { ...collection, ...chain });
+      setPhase('success');
     } catch (e) {
       // The collection record and the issuer key survive, so the retry resumes
       // the on-chain steps instead of starting a second collection.
