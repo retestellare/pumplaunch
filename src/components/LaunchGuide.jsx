@@ -30,7 +30,7 @@ const SECTIONS = [
     title: 'Supply & distribution',
     items: [
       'Total supply is fixed at launch and can never be increased (the issuer is permanently locked).',
-      '100% Liquidity seeds all tokens to the DEX; 80/20 keeps 20% in your wallet.',
+      'Choose 100% Liquidity to seed every token to the DEX, or 100% Auto-Pool to send all purchase XLM straight into the pool.',
       'Auto-Pool mode derives supply from your initial liquidity — more XLM in = more tokens.',
     ],
   },
