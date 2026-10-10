@@ -52,7 +52,6 @@ import { ImagePlus } from 'lucide-react';
 
 const DISTRIBUTION_OPTIONS = [
   { value: 100, label: '100% Liquidity', desc: 'All tokens seeded to the DEX bonding curve' },
-  { value: 80, label: '80 / 20', desc: 'Keep 20% in your wallet, seed 80% to the DEX' },
   { value: 'auto_pool', label: '100% Auto-Pool', desc: '100% of XLM from purchases goes directly into the Stellar Liquidity Pool to automatically support liquidity.' },
 ];
 
@@ -62,9 +61,6 @@ const CURVE_OPTIONS = CURVE_KEYS.map((key) => {
   const p = CURVE_PRESETS[key];
   return { value: key, label: p.label, desc: p.desc, meta: `${p.rungs} rungs · ${p.priceStep}× step` };
 });
-
-// New launches create a single XLM market.
-const LAUNCH_TYPE_OPTIONS = POOL_TYPES.filter((opt) => opt.value === 'xlm');
 
 const STEP_LABELS = STEPS.reduce((acc, s) => ({ ...acc, [s.id]: s.label }), { start: 'Start' });
 
@@ -122,7 +118,8 @@ export default function LaunchToken() {
   const [availableUsdc, setAvailableUsdc] = useState(null);
   const [usdcTrustline, setUsdcTrustline] = useState(false);
   const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
-  const [poolType, setPoolType] = useState('xlm');
+  // Every new launch creates a single XLM market.
+  const poolType = 'xlm';
   const [attempt, setAttempt] = useState(null);
   const [stepStatuses, setStepStatuses] = useState({});
   const [waiting, setWaiting] = useState(false);
@@ -849,14 +846,6 @@ export default function LaunchToken() {
                 Which Stellar market your token launches into, and how much liquidity you seed
               </p>
             </div>
-
-            <OptionGroup
-              label="Launch Type"
-              options={LAUNCH_TYPE_OPTIONS}
-              isSelected={(opt) => poolType === opt.value}
-              onSelect={(opt) => setPoolType(opt.value)}
-              disabled={blocked}
-            />
 
             <div>
               <label className="text-xs text-white/40 mb-1.5 block">
