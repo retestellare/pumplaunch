@@ -6,15 +6,16 @@ import { X, ImagePlus } from 'lucide-react';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
-export default function CreatePost({ onDone }) {
+export default function CreatePost({ onDone, post = null }) {
+  const isEdit = !!post;
   const { wallet } = useWallet();
   const { toast } = useToast();
-  const [content, setContent] = useState('');
-  const [tokenSymbol, setTokenSymbol] = useState('');
-  const [position, setPosition] = useState('');
-  const [pnl, setPnl] = useState('');
+  const [content, setContent] = useState(post?.content || '');
+  const [tokenSymbol, setTokenSymbol] = useState(post?.token_symbol || '');
+  const [position, setPosition] = useState(post?.position_size ? String(post.position_size) : '');
+  const [pnl, setPnl] = useState(post?.pnl ? String(post.pnl) : '');
   const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [imagePreview, setImagePreview] = useState(post?.image_url || null);
   const [posting, setPosting] = useState(false);
 
   const handleImage = (e) => {
@@ -32,23 +33,32 @@ export default function CreatePost({ onDone }) {
     if (!content.trim()) return;
     setPosting(true);
     try {
-      let imageUrl = null;
+      let imageUrl = post?.image_url || null;
       if (imageFile) {
         const { file_url } = await base44.integrations.Core.UploadPublicFile({ file: imageFile });
         imageUrl = file_url;
       }
-      await base44.entities.Post.create({
+      const fields = {
         content,
-        author: wallet?.address || 'Anonymous',
         image_url: imageUrl,
         token_symbol: tokenSymbol,
         position_size: parseFloat(position) || 0,
         pnl: parseFloat(pnl) || 0,
-        likes: 0,
-        comments_count: 0,
-      });
-      toast({ title: 'Callout posted!' });
-      onDone();
+      };
+      let saved;
+      if (isEdit) {
+        saved = await base44.entities.Post.update(post.id, fields);
+        toast({ title: 'Callout updated' });
+      } else {
+        saved = await base44.entities.Post.create({
+          ...fields,
+          author: wallet?.address || 'Anonymous',
+          likes: 0,
+          comments_count: 0,
+        });
+        toast({ title: 'Callout posted!' });
+      }
+      onDone(saved);
     } catch (e) {
       toast({ title: 'Failed to post', description: e.message || String(e), variant: 'destructive' });
     }
@@ -58,10 +68,12 @@ export default function CreatePost({ onDone }) {
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-lg">New Callout</h2>
-        <button onClick={onDone}>
-          <X size={20} className="text-white/40" />
-        </button>
+        <h2 className="font-bold text-lg">{isEdit ? 'Edit Callout' : 'New Callout'}</h2>
+        {!isEdit && (
+          <button onClick={onDone}>
+            <X size={20} className="text-white/40" />
+          </button>
+        )}
       </div>
       <textarea
         value={content}
@@ -110,7 +122,7 @@ export default function CreatePost({ onDone }) {
         disabled={posting || !content.trim()}
         className="w-full py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
       >
-        {posting ? 'Posting…' : 'Post Callout'}
+        {posting ? (isEdit ? 'Saving…' : 'Posting…') : isEdit ? 'Save Changes' : 'Post Callout'}
       </button>
     </div>
   );

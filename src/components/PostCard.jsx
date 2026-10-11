@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
@@ -7,13 +7,23 @@ import Avatar from '@/components/Avatar';
 import ShareButton from '@/components/ShareButton';
 import { postShare } from '@/lib/share';
 import { shortAddr, displayName } from '@/lib/profiles';
+import PostActions from '@/components/social/PostActions';
 
-export default function PostCard({ post, onChange, profileMap = {} }) {
+export default function PostCard({ post: sourcePost, onChange, profileMap = {} }) {
   const { wallet } = useWallet();
+  const [post, setPost] = useState(sourcePost);
+  const [deleted, setDeleted] = useState(false);
   const [liked, setLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState('');
+
+  // A feed reload replaces the post; an edit keeps the card in step without one.
+  useEffect(() => {
+    setPost(sourcePost);
+  }, [sourcePost]);
+
+  const isAuthor = !!wallet?.address && post.author === wallet.address;
 
   const like = async () => {
     if (liked) return;
@@ -43,6 +53,8 @@ export default function PostCard({ post, onChange, profileMap = {} }) {
 
   const pnlPositive = (post.pnl || 0) >= 0;
 
+  if (deleted) return null;
+
   return (
     <div className="bg-[#141518] rounded-2xl p-4 mb-3">
       <div className="flex items-center justify-between mb-2">
@@ -63,11 +75,21 @@ export default function PostCard({ post, onChange, profileMap = {} }) {
             <div className="flex items-center gap-2">{content}</div>
           );
         })()}
-        {post.token_symbol && (
-          <span className="text-xs px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold">
-            ${post.token_symbol}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {post.token_symbol && (
+            <span className="text-xs px-2 py-0.5 rounded bg-white/5 text-white/60 font-bold">
+              ${post.token_symbol}
+            </span>
+          )}
+          {isAuthor && (
+            <PostActions
+              post={post}
+              onChange={onChange}
+              onSaved={(updated) => setPost(updated)}
+              onDeleted={() => setDeleted(true)}
+            />
+          )}
+        </div>
       </div>
       <p className="text-sm text-white/90 mb-3">{post.content}</p>
       {post.image_url && (
