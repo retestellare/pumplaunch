@@ -15,6 +15,7 @@ import { mapLimit } from '@/lib/concurrency';
 import PullToRefresh from '@/components/PullToRefresh';
 import NftDropList from '@/components/nft/NftDropList';
 import { HERO_IMAGE } from '@/lib/brandAssets';
+import MarketTicker from '@/components/ticker/MarketTicker';
 
 const MODES = [
   { key: 'coins', label: 'Memecoins' },
@@ -116,7 +117,10 @@ export default function Home() {
               <WalletButton />
             </div>
           </div>
-          <div className="mt-[120px] animate-[sp-up_.6s_.1s_ease-out_both]">
+          <div className="mt-[54px] animate-[sp-up_.6s_.08s_ease-out_both]">
+            <MarketTicker tokens={allTokens} />
+          </div>
+          <div className="mt-2.5 animate-[sp-up_.6s_.1s_ease-out_both]">
             <div className="flex gap-1 p-1 rounded-[14px] bg-[#16211E]/85 border border-[#00F59B]/20 backdrop-blur-[8px]">
               {MODES.map((m) => (
                 <button

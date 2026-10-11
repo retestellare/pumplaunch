@@ -127,3 +127,24 @@
     color: #f2f7f4;
   }
 }
+
+/* Continuous ticker: the track carries two copies of the row, so sliding it by
+   half its width loops with no visible seam. */
+.sp-tape {
+  display: flex;
+  width: max-content;
+  animation: sp-marquee var(--tape-duration, 30s) linear infinite;
+}
+
+.sp-tape-reverse {
+  animation-direction: reverse;
+}
+
+@keyframes sp-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
