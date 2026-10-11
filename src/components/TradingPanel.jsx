@@ -15,8 +15,10 @@ import {
 import TriggerPriceModal from '@/components/TriggerPriceModal';
 import PayWithSelector from '@/components/PayWithSelector';
 import { ROUTE_LABEL } from '@/lib/market';
+import { quoteTrade, toNumber, fmtAmount } from '@/lib/tradeQuote';
 import { QUOTES, tokenPools, toXlm, USDC_CODE, USDC_ISSUER } from '@/lib/pools';
 import ShareButton from '@/components/ShareButton';
+import OrderSummary from '@/components/trade/OrderSummary';
 import { tradeShare } from '@/lib/share';
 
 const LIMIT_PRESETS = [5, 10, 20];
@@ -124,7 +126,18 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
   const balance = side === 'buy' ? payBalance : tokenBalance;
   const needsUsdcTrustline = payWith === 'usdc' && !usdcTrustline;
   const effectivePrice = mode === 'limit' ? triggerPrice : price;
-  const estOut = effectivePrice > 0 ? (parseFloat(amount) || 0) / effectivePrice : 0;
+  // A limit order fills at the price it sets; a market order follows what the
+  // pool curve or the best offer actually returns for this size.
+  const fill = quoteTrade({
+    side,
+    amount,
+    price: effectivePrice,
+    route: mode === 'limit' ? null : route,
+    pool: quoteMarket?.pool,
+  });
+  const estOut = fill.out;
+  // The trade's value in XLM, so a USDC market still reports one unit.
+  const xlmValue = payWith === 'usdc' ? toXlm(side === 'buy' ? fill.input : estOut, payWith, xlmPerUsdc) : 0;
 
   const applyPreset = (pct) => {
     setTriggerPrice(side === 'buy' ? price * (1 - pct / 100) : price * (1 + pct / 100));
@@ -147,7 +160,7 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
       });
       return;
     }
-    const amt = parseFloat(amount);
+    const amt = toNumber(amount);
     if (!amt || amt <= 0) return;
     if (amt > balance) {
       toast({
@@ -347,11 +360,17 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
         </div>
       </div>
 
-      {amount && tradable && (
-        <div className="text-xs text-white/40">
-          ≈ {estOut.toFixed(2)} {side === 'buy' ? token.symbol : quote.label} · {effectivePrice.toFixed(8)}{' '}
-          {quote.label}
-          {route ? ` via ${ROUTE_LABEL[route]}` : ''}
+      {estOut > 0 && (
+        <div className="text-xs text-white/40 space-y-0.5">
+          <div>
+            ≈ {fmtAmount(estOut)} {side === 'buy' ? token.symbol : quote.label}
+            {xlmValue > 0 && ` · ≈ ${fmtAmount(xlmValue)} XLM`}
+          </div>
+          <div>
+            {fmtAmount(fill.fillPrice, 8)} {quote.label} per {token.symbol}
+            {route ? ` via ${ROUTE_LABEL[route]}` : ''}
+            {fill.impact >= 0.1 ? ` · spot ${fill.spot.toFixed(8)}` : ''}
+          </div>
         </div>
       )}
 
@@ -365,54 +384,17 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
       )}
 
       {confirm && (
-        <div className="bg-black/40 rounded-xl p-3 space-y-1.5 border border-white/5">
-          {mode === 'limit' && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-white/40">Trigger Price</span>
-              <span className="font-medium">{triggerPrice.toFixed(8)} {quote.label}</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/40">Market</span>
-            <span className="font-medium">{quote.label}</span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/40">You {side === 'buy' ? 'send' : 'sell'}</span>
-            <span className="font-medium">
-              {confirm.amount} {side === 'buy' ? quote.label : token.symbol}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/40">{mode === 'limit' ? 'Order size' : 'You receive (est)'}</span>
-            <span className="font-medium">
-              {confirm.estOut.toFixed(2)} {side === 'buy' ? token.symbol : quote.label}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/40">Price used</span>
-            <span className="font-medium">
-              {effectivePrice.toFixed(8)} {quote.label}{route ? ` · ${ROUTE_LABEL[route]}` : ''}
-            </span>
-          </div>
-          {mode === 'market' && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-white/40">Minimum received</span>
-              <span className="font-medium">
-                {(confirm.estOut * 0.9).toFixed(2)} {side === 'buy' ? token.symbol : quote.label}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-white/40">Network fee</span>
-            <span className="text-white/60">~{cost.feeXlm.toFixed(5)} XLM</span>
-          </div>
-          {cost.reserveXlm > 0 && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-white/40">Reserve (refundable)</span>
-              <span className="text-white/60">~{cost.reserveXlm.toFixed(1)} XLM</span>
-            </div>
-          )}
-        </div>
+        <OrderSummary
+          side={side}
+          mode={mode}
+          token={token}
+          quote={quote}
+          triggerPrice={triggerPrice}
+          confirm={confirm}
+          fill={fill}
+          route={route}
+          cost={cost}
+        />
       )}
 
       {market && !tradable && (
