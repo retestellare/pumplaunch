@@ -63,6 +63,9 @@ async function doSave(attempt) {
     error: attempt.error || '',
     error_code: attempt.error_code || attempt.errorCode || '',
   };
+  // Recorded once, before the USDC leg is bought, so a resume can tell how much
+  // of the wallet's USDC came from the launch's own swap.
+  if (typeof attempt.usdc_before_swap === 'number') record.usdc_before_swap = attempt.usdc_before_swap;
 
   try {
     let id = idCache.get(attempt.wallet_address);

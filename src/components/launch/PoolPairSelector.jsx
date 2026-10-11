@@ -9,7 +9,7 @@ const MARKETS = [
   {
     value: 'split',
     label: 'Split XLM + USDC',
-    desc: 'Half the liquidity seeds an XLM pool, half a USDC pool — two markets from one launch.',
+    desc: 'Half seeds an XLM pool; the other half is swapped to USDC on the DEX and seeds a USDC pool.',
   },
 ];
 
@@ -22,12 +22,14 @@ export default function PoolPairSelector({
   poolType,
   onSelect,
   allocation,
+  swap,
   symbol,
   needsUsdc,
   rateReady,
   usdcTrustline,
   disabled,
 }) {
+  const converted = swap?.xlm > 0;
   return (
     <div className="space-y-3">
       <OptionGroup
@@ -40,6 +42,14 @@ export default function PoolPairSelector({
 
       <div className="bg-black/30 rounded-xl p-3 space-y-1.5">
         <p className="text-[10px] text-white/40">Initial liquidity allocation</p>
+        {converted && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-white/40">XLM → USDC conversion</span>
+            <span className="font-medium">
+              {fmtPoolAmount(swap.xlm)} XLM → ~{fmtPoolAmount(swap.usdc)} USDC
+            </span>
+          </div>
+        )}
         {allocation.map((a) => (
           <div key={a.quote} className="flex items-center justify-between text-xs">
             <span className="text-white/40">{quoteOf(a.quote).label} pool</span>
@@ -51,11 +61,18 @@ export default function PoolPairSelector({
           </div>
         ))}
         {!rateReady && <p className="text-[10px] text-white/40">Reading the XLM/USDC rate…</p>}
-        {needsUsdc && (
+        {converted ? (
           <p className="text-[10px] text-white/30 pt-0.5">
-            The USDC pool is funded from your wallet's USDC
-            {usdcTrustline ? '' : ' — a USDC trustline is added during the launch (0.5 XLM reserve)'}.
+            Your XLM buys the USDC side on the Stellar DEX during the launch, and the USDC trustline is added in the
+            same transaction — you only need XLM.
           </p>
+        ) : (
+          needsUsdc && (
+            <p className="text-[10px] text-white/30 pt-0.5">
+              The USDC pool is funded from your wallet's USDC
+              {usdcTrustline ? '' : ' — a USDC trustline is added during the launch (0.5 XLM reserve)'}.
+            </p>
+          )
         )}
       </div>
     </div>

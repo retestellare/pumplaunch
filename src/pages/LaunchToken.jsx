@@ -19,6 +19,7 @@ import {
   buildIssuerSetupTransaction,
   buildBondingCurveTransaction,
   buildPoolSetupTransaction,
+  buildXlmToUsdcSwapTransaction,
   verifyLaunchProgress,
   keypairFromSecret,
   BASE_PRICE,
@@ -75,6 +76,15 @@ function stepLabel(id) {
   return STEP_LABELS[id] || id || 'unknown step';
 }
 
+// A split launch buys its USDC leg with XLM: tolerate a 2% move between the
+// quote and the swap landing.
+const SWAP_SLIPPAGE = 0.02;
+
+function usdcBalance(account) {
+  const b = (account?.balances || []).find((x) => x.asset_code === USDC_CODE && x.asset_issuer === USDC_ISSUER);
+  return b ? parseFloat(b.balance) : 0;
+}
+
 function analyzeStall(attempt, availableXlm, xlmPerUsdc = 0) {
   const curvePreset = CURVE_PRESETS[attempt.curve] || CURVE_PRESETS.slow;
   const plan = planPoolLaunch({
@@ -90,7 +100,7 @@ function analyzeStall(attempt, availableXlm, xlmPerUsdc = 0) {
     poolCount: plan.quotes.length,
     needsUsdcTrustline: plan.quotes.includes('usdc'),
   });
-  const poolDeposit = parseFloat(plan.deposits.xlm) || 0;
+  const poolDeposit = (parseFloat(plan.deposits.xlm) || 0) + (plan.swapXlm || 0);
   const issuerReserve = attempt.issuer_public_key ? 0 : cost.issuerReserveXlm;
   const required = issuerReserve + poolDeposit + cost.feeXlm + cost.reserveXlm;
   const insufficient = availableXlm != null && availableXlm < required;
@@ -425,6 +435,49 @@ export default function LaunchToken() {
         }
       }
 
+      // A split launch takes XLM only: the USDC leg is bought on the DEX here.
+      // What the swap delivered is measured against the wallet's pre-swap
+      // balance, so USDC the creator already holds stays theirs.
+      const convertUsdcLeg = async () => {
+        const expected = launchPlan.deposits.usdc;
+        const floor = expected * (1 - SWAP_SLIPPAGE);
+        const account = await loadAccount(wallet.address);
+        if (store.usdc_before_swap == null) {
+          store.usdc_before_swap = usdcBalance(account);
+          saveAttempt(store);
+        }
+        let received = usdcBalance(account) - store.usdc_before_swap;
+        if (received < floor) {
+          setStage('liquidity', 'Converting XLM to USDC…');
+          await submitWithRetry(
+            async () => {
+              const acct = await loadAccount(wallet.address);
+              return buildXlmToUsdcSwapTransaction({
+                sourceAccount: acct,
+                xlmAmount: launchPlan.swapXlm,
+                minUsdcOut: floor,
+              });
+            },
+            signAndSubmit,
+            {
+              onRetry: (i, max) => {
+                setRetrying(true);
+                setStage('liquidity', `Retrying XLM → USDC conversion (${i}/${max})…`);
+              },
+              verify: async () => usdcBalance(await loadAccount(wallet.address)) - store.usdc_before_swap >= floor,
+            }
+          );
+          // Horizon can lag by a ledger; wait for the bought USDC to show up so
+          // the pool is seeded with the amount that actually landed.
+          for (let i = 0; i < 6 && received < floor; i++) {
+            if (i > 0) await new Promise((r) => setTimeout(r, 2000));
+            received = usdcBalance(await loadAccount(wallet.address)) - store.usdc_before_swap;
+          }
+          saveAttempt(store);
+        }
+        return received >= floor && received <= expected * 1.1 ? received : expected;
+      };
+
       // Step 3: Seed liquidity
       setStage('liquidity', store.reused_asset ? 'Existing token — skipped' : 'Seeding liquidity…');
       if (store.reused_asset) {
@@ -435,6 +488,8 @@ export default function LaunchToken() {
           setWaiting(true);
           try {
             if (store.auto_pool) {
+              const poolAmounts = { ...launchPlan.deposits };
+              if (launchPlan.swapXlm > 0) poolAmounts.usdc = await convertUsdcLeg();
               // Dual launches seed one pool per quote, skipping any already live,
               // so a resume picks up exactly where it stopped.
               for (const q of launchPlan.quotes) {
@@ -448,7 +503,7 @@ export default function LaunchToken() {
                     assetCode: sym,
                     issuer: store.issuer_public_key,
                     quote: q,
-                    quoteAmount: launchPlan.deposits[q],
+                    quoteAmount: poolAmounts[q],
                     tokenAmount: launchPlan.tokensByQuote[q],
                   });
                 };
@@ -709,8 +764,10 @@ export default function LaunchToken() {
     needsUsdcTrustline: needsUsdc && !usdcTrustline,
   });
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
-  const requiredXlm = cost.issuerReserveXlm + (parseFloat(plan.deposits.xlm) || 0) + cost.feeXlm + cost.reserveXlm;
-  const requiredUsdc = parseFloat(plan.deposits.usdc) || 0;
+  const swapXlm = plan.swapXlm || 0;
+  const requiredXlm = cost.issuerReserveXlm + (parseFloat(plan.deposits.xlm) || 0) + swapXlm + cost.feeXlm + cost.reserveXlm;
+  // A split launch buys its USDC with XLM, so the wallet never needs USDC.
+  const requiredUsdc = swapXlm > 0 ? 0 : parseFloat(plan.deposits.usdc) || 0;
   const xlmOk = availableXlm === null || availableXlm >= requiredXlm;
   const usdcOk = !needsUsdc || availableUsdc === null || availableUsdc >= requiredUsdc;
   const balanceOk = xlmOk && usdcOk;
@@ -880,7 +937,7 @@ export default function LaunchToken() {
               </p>
               {autoPool && effectivePoolType === 'split' && (
                 <p className="text-[10px] text-white/30 mt-1">
-                  Half seeds the XLM pool, half the USDC pool at the live XLM/USDC rate.
+                  Half seeds the XLM pool; the other half is swapped to USDC at the live rate and seeds the USDC pool.
                 </p>
               )}
             </div>
@@ -914,6 +971,7 @@ export default function LaunchToken() {
                 poolType={poolType}
                 onSelect={setPoolType}
                 allocation={allocation}
+                swap={{ xlm: swapXlm, usdc: parseFloat(plan.deposits.usdc) || 0 }}
                 symbol={form.symbol || 'tokens'}
                 needsUsdc={needsUsdc}
                 rateReady={rateReady}
@@ -1013,6 +1071,12 @@ export default function LaunchToken() {
                 <>
                   <Row label="Mode" value="100% Auto-Pool" />
                   <Row label="Initial Liquidity" value={`${fmtPoolAmount(initialLiquidity)} ${inputUnit}`} />
+                  {swapXlm > 0 && (
+                    <Row
+                      label="XLM → USDC Conversion"
+                      value={`${fmtPoolAmount(swapXlm)} XLM → ~${fmtPoolAmount(plan.deposits.usdc)} USDC`}
+                    />
+                  )}
                   {allocation.map((a) => (
                     <Row
                       key={a.quote}

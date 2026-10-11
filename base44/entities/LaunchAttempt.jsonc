@@ -49,9 +49,13 @@
       "enum": [
         "xlm",
         "usdc",
-        "dual"
+        "dual",
+        "split"
       ],
       "default": "xlm"
+    },
+    "usdc_before_swap": {
+      "type": "number"
     },
     "step": {
       "type": "string"

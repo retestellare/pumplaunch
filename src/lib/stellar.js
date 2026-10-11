@@ -781,15 +781,19 @@ export function planPoolLaunch({ poolType = 'xlm', input, xlmPerUsdc = 0 }) {
   const usable = amount > 0 && (!quotes.includes('usdc') || xlmPerUsdc > 0);
 
   const deposits = {};
+  let swapXlm = 0;
   if (usable) {
     if (poolType === 'usdc') {
       deposits.usdc = amount;
     } else if (poolType === 'split') {
-      // One liquidity amount, two pools: half seeds each side. Both pools price
-      // the token at BASE_PRICE, so the two markets cannot be arbitraged.
+      // The creator deposits XLM only: half seeds the XLM pool as-is, and the
+      // other half is swapped to USDC on the DEX first (swapXlm) to seed the
+      // USDC pool. Both pools price the token at BASE_PRICE, so the two markets
+      // cannot be arbitraged.
       const half = amount / 2;
       deposits.xlm = half;
       deposits.usdc = half / xlmPerUsdc;
+      swapXlm = half;
     } else if (poolType === 'dual') {
       deposits.xlm = amount;
       deposits.usdc = amount / xlmPerUsdc;
@@ -806,7 +810,34 @@ export function planPoolLaunch({ poolType = 'xlm', input, xlmPerUsdc = 0 }) {
     tokensByQuote[q] = inXlm / BASE_PRICE;
   }
 
-  return { quotes, deposits, tokensByQuote, xlmValue, supply: xlmValue / BASE_PRICE };
+  return { quotes, deposits, tokensByQuote, xlmValue, supply: xlmValue / BASE_PRICE, swapXlm };
+}
+
+// Buy the USDC leg of a pool launch with XLM. Sent as a path payment to the
+// creator's own account, so the USDC lands in their wallet, with the trustline
+// added in the same transaction — one wallet approval, and no USDC needed up
+// front. The DEX order book and the XLM/USDC pools both route the trade.
+export function buildXlmToUsdcSwapTransaction({ sourceAccount, xlmAmount, minUsdcOut }) {
+  const usdc = quoteAsset('usdc');
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (!hasTrustline(sourceAccount, USDC_CODE, USDC_ISSUER)) {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ asset: usdc }));
+  }
+  tx.addOperation(
+    StellarSdk.Operation.pathPaymentStrictSend({
+      sendAsset: StellarSdk.Asset.native(),
+      sendAmount: formatAmount(xlmAmount),
+      destination: sourceAccount.accountId(),
+      destAsset: usdc,
+      destMin: formatAmount(minUsdcOut),
+    })
+  );
+
+  return tx.setTimeout(300).build();
 }
 
 export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0 } = {}) {
