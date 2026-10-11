@@ -11,7 +11,7 @@ export default function PoolBadge({ token }) {
           <span
             key={key}
             style={{ color: quote.color, background: `${quote.color}1f` }}
-            className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+            className="text-[9px] px-1.5 py-0.5 rounded-[4px] font-extrabold tracking-[.05em] uppercase"
           >
             {quote.label}
           </span>

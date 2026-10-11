@@ -11,7 +11,7 @@ const ITEMS = [
 export default function BottomNav() {
   const { pathname } = useLocation();
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0a0b0d] border-t border-white/10 max-w-lg mx-auto select-none pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#080B0A] border-t border-[#00F59B]/25 max-w-lg mx-auto select-none pb-[env(safe-area-inset-bottom)]">
       <div className="flex">
         {ITEMS.map(({ path, label, icon: Icon }) => {
           // The NFT collection screen lives under the Launch tab, and an asset's
@@ -24,12 +24,14 @@ export default function BottomNav() {
             <Link
               key={path}
               to={path}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 transition select-none ${
-                active ? 'text-[#00ff88]' : 'text-white/40'
+              className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-extrabold tracking-[.06em] uppercase transition-colors duration-200 select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B] ${
+                active
+                  ? 'text-[#00F59B] [text-shadow:0_0_10px_rgba(0,245,155,.6)]'
+                  : 'text-[#F2F7F4]/40 hover:text-[#F2F7F4]'
               }`}
             >
               <Icon size={20} />
-              <span className="text-[10px] font-medium">{label}</span>
+              <span>{label}</span>
             </Link>
           );
         })}

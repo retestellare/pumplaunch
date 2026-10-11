@@ -104,3 +104,26 @@
     color: #fff;
   }
 }
+
+/* Terminal motion: groups rise in, prices flash once on arrival. */
+@keyframes sp-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sp-flash {
+  0% {
+    background: rgba(0, 245, 155, 0.55);
+    color: #04100b;
+  }
+  100% {
+    background: transparent;
+    color: #f2f7f4;
+  }
+}

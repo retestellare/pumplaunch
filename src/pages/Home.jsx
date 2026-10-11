@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import PageLayout from '@/components/PageLayout';
 import TokenCard from '@/components/TokenCard';
 import WalletButton from '@/components/WalletButton';
+import { Image } from '@/components/ui/image';
 import { useWallet } from '@/lib/wallet';
 import { Link } from 'react-router-dom';
 import { HelpCircle } from 'lucide-react';
@@ -13,6 +14,7 @@ import { byLiquidityGrowth } from '@/lib/liquidity';
 import { mapLimit } from '@/lib/concurrency';
 import PullToRefresh from '@/components/PullToRefresh';
 import NftDropList from '@/components/nft/NftDropList';
+import { HERO_IMAGE } from '@/lib/brandAssets';
 
 const MODES = [
   { key: 'coins', label: 'Memecoins' },
@@ -91,65 +93,82 @@ export default function Home() {
   }, [tab, allTokens]);
 
   return (
-    <PageLayout
-      title="Stellar Pump"
-      rightAction={
-        <div className="flex items-center gap-2">
-          <Link to="/guide" className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition">
-            <HelpCircle size={18} className="text-white/70" />
-          </Link>
-          <WalletButton />
-        </div>
-      }
-    >
+    <PageLayout bare>
       <PullToRefresh onRefresh={load} />
-      <div className="sticky top-14 z-20 bg-[#0a0b0d]/95 backdrop-blur border-b border-white/5">
-        <div className="flex gap-1 p-1 m-3 mb-2 rounded-xl bg-white/5">
-          {MODES.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMode(m.key)}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${
-                mode === m.key ? 'bg-white/10 text-white' : 'text-white/40'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
+      <section className="relative min-h-[300px] overflow-hidden">
+        <div className="absolute inset-0">
+          <Image src={HERO_IMAGE} alt="" fittingType="fill" className="w-full h-full" />
         </div>
-        {mode === 'coins' && (
-          <div className="flex gap-1 px-3 pb-3">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${
-                  tab === t.key ? 'bg-[#00ff88] text-black' : 'bg-white/5 text-white/60'
-                }`}
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(8,11,10,.55),#080B0A_96%)]" />
+        <div className="relative px-3.5 pt-[calc(0.875rem+env(safe-area-inset-top))] pb-4">
+          <div className="flex items-center justify-between gap-2 animate-[sp-up_.6s_ease-out_both]">
+            <span className="font-black text-[18px] tracking-[-.02em] uppercase text-[#00F59B] [text-shadow:0_0_12px_rgba(0,245,155,.6)]">
+              Stellar Pump
+            </span>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/guide"
+                aria-label="Guide"
+                className="w-[34px] h-[34px] rounded-[10px] bg-[#16211E] border border-[#00F59B]/25 text-[#00F59B] flex items-center justify-center transition duration-200 hover:bg-[#1d2d29] hover:shadow-[0_0_10px_rgba(0,245,155,.4)] active:bg-[#0e1614] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
               >
-                {t.label}
-              </button>
-            ))}
+                <HelpCircle size={18} />
+              </Link>
+              <WalletButton />
+            </div>
           </div>
-        )}
-      </div>
+          <div className="mt-[120px] animate-[sp-up_.6s_.1s_ease-out_both]">
+            <div className="flex gap-1 p-1 rounded-[14px] bg-[#16211E]/85 border border-[#00F59B]/20 backdrop-blur-[8px]">
+              {MODES.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setMode(m.key)}
+                  className={`flex-1 py-3 rounded-[10px] font-black text-[12px] tracking-[.08em] uppercase transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B] ${
+                    mode === m.key
+                      ? 'bg-[#16211E] text-[#F2F7F4] shadow-[inset_0_0_0_1px_#00F59B,0_0_16px_rgba(0,245,155,.35)]'
+                      : 'bg-transparent text-[#F2F7F4]/50 hover:text-[#F2F7F4]'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {mode === 'coins' && (
+              <div className="flex gap-1.5 mt-2.5 animate-[sp-up_.6s_.2s_ease-out_both]">
+                {TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    className={`flex-1 py-2.5 rounded-[10px] border font-extrabold text-[11px] tracking-[.06em] uppercase transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B] ${
+                      tab === t.key
+                        ? 'bg-[#00F59B] text-[#04100B] border-[#00F59B] shadow-[0_0_14px_rgba(0,245,155,.5)]'
+                        : 'bg-[#101816] text-[#F2F7F4]/65 border-[#16211E] hover:shadow-[0_0_10px_rgba(0,245,155,.35)]'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
       {mode === 'nft' ? (
         <NftDropList />
       ) : loading ? (
-        <div className="flex justify-center py-20">
-          <div className="w-8 h-8 border-2 border-white/10 border-t-[#00ff88] rounded-full animate-spin" />
-        </div>
+        <div className="w-[22px] h-[22px] border-2 border-[#16211E] border-t-[#00F59B] rounded-full animate-spin mx-auto my-3.5" />
       ) : tokens.length === 0 ? (
-        <p className="text-center text-white/40 py-20 text-sm">No tokens yet. Launch the first one!</p>
+        <p className="px-4 py-4 text-center text-[12px] text-[#F2F7F4]/40">
+          No tokens yet. Launch the first one!
+        </p>
       ) : (
-        <div>
+        <div className="border-t border-[#16211E]">
           {tokens.map((t, i) => (
-            <TokenCard key={t.id} token={t} rank={enriching ? null : i + 1} />
+            <TokenCard key={t.id} token={t} index={i} rank={enriching ? null : i + 1} />
           ))}
         </div>
       )}
       {mode === 'coins' && allTokens.length > 0 && (
-        <div className="px-3 pt-4 space-y-3">
+        <div className="px-3 pt-3 space-y-3">
           <NewHoldersToday tokens={allTokens} />
           <Leaderboard tokens={allTokens} walletAddress={wallet?.address} />
         </div>

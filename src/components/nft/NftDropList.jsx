@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
+import { Image } from '@/components/ui/image';
 import NftCard from './NftCard';
 import { mapLimit } from '@/lib/concurrency';
 import { fetchCollectionState, isOnChain } from '@/lib/nftLaunch';
+import { PANEL_IMAGE } from '@/lib/brandAssets';
 
 export default function NftDropList() {
   const [collections, setCollections] = useState(null);
@@ -41,22 +43,26 @@ export default function NftDropList() {
 
   if (collections === null) {
     return (
-      <div className="flex justify-center py-20">
-        <div className="w-8 h-8 border-2 border-white/10 border-t-[#00ff88] rounded-full animate-spin" />
-      </div>
+      <div className="w-[22px] h-[22px] border-2 border-[#16211E] border-t-[#00F59B] rounded-full animate-spin mx-auto my-3.5" />
     );
   }
 
   if (collections.length === 0) {
     return (
-      <div className="text-center py-16 px-6 space-y-3">
-        <p className="text-sm text-white/50">No NFT drops yet.</p>
-        <Link
-          to="/launch-nft"
-          className="inline-block px-5 py-2.5 rounded-xl bg-[#00ff88] text-black text-sm font-bold"
-        >
-          Launch the first collection
-        </Link>
+      <div className="mt-3.5 mx-3 bg-[#101816] border border-[#16211E] rounded-[14px] overflow-hidden">
+        <div className="h-[70px]">
+          <Image src={PANEL_IMAGE} alt="" fittingType="fill" className="w-full h-full" />
+        </div>
+        <div className="px-4 py-4 text-center text-[12px] text-[#F2F7F4]/40">
+          No NFT drops yet.
+          <br />
+          <Link
+            to="/launch-nft"
+            className="inline-block mt-2.5 px-[18px] py-2.5 rounded-[12px] bg-[#00F59B] text-[#04100B] text-[12px] font-black transition duration-200 hover:shadow-[0_0_14px_rgba(0,245,155,.6)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+          >
+            Launch the first collection
+          </Link>
+        </div>
       </div>
     );
   }
@@ -67,7 +73,7 @@ export default function NftDropList() {
   );
 
   return (
-    <div className="p-3 space-y-3">
+    <div className="px-3 pt-3.5 space-y-3">
       {sorted.map((c) => (
         <NftCard key={c.id} collection={c} onMinted={update} />
       ))}

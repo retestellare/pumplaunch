@@ -88,7 +88,7 @@ export default function NftCard({ collection, onMinted }) {
   };
 
   return (
-    <div className="bg-[#141518] rounded-2xl p-3 space-y-3 border border-white/5">
+    <div className="bg-[#101816] rounded-2xl p-3 space-y-3 border border-[#16211E]">
       <div className="flex items-start gap-3">
         {collection.media_url ? (
           <Image

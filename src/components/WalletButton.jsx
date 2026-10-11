@@ -43,7 +43,7 @@ export default function WalletButton() {
       <button
         onClick={connect}
         disabled={connecting}
-        className="px-4 py-1.5 rounded-lg bg-[#00ff88] text-black text-sm font-bold select-none disabled:opacity-50"
+        className="h-[34px] px-3 rounded-[10px] bg-[#00F59B] text-[#04100B] text-[11px] font-extrabold tracking-[.04em] uppercase select-none transition duration-200 hover:shadow-[0_0_14px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B] disabled:opacity-50"
       >
         {connecting ? 'Connecting…' : 'Connect'}
       </button>
@@ -54,17 +54,15 @@ export default function WalletButton() {
   return (
     <button
       onClick={disconnect}
-      className="flex flex-col items-end leading-tight px-3 py-1 rounded-lg bg-white/5 select-none"
+      className="h-[34px] flex items-center gap-2 px-3 rounded-[10px] bg-[#16211E] border border-[#00F59B]/25 select-none transition duration-200 hover:shadow-[0_0_10px_rgba(0,245,155,.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
     >
-      <span className="flex items-baseline gap-1.5">
-        <span className="text-sm font-bold text-[#00ff88]">
-          {balances ? balances.xlm.toFixed(2) : '…'} XLM
-        </span>
-        <span className="text-xs font-bold text-[#3b82f6]">
-          {balances ? balances.usdc.toFixed(2) : '…'} USDC
-        </span>
+      <span className="text-[11px] font-extrabold text-[#00F59B]">
+        {balances ? balances.xlm.toFixed(2) : '…'} XLM
       </span>
-      <span className="text-[10px] text-white/40">{short}</span>
+      <span className="text-[11px] font-extrabold text-[#4d9eff]">
+        {balances ? balances.usdc.toFixed(2) : '…'} USDC
+      </span>
+      <span className="text-[10px] font-mono text-[#F2F7F4]/40">{short}</span>
     </button>
   );
 }
