@@ -2,14 +2,19 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
-import { loadAccount, parseBalances, fetchTokenMetadata } from '@/lib/stellar';
+import { loadAccount, parseBalances } from '@/lib/stellar';
+import { loadAssetData } from '@/lib/assetData';
+import { mapLimit } from '@/lib/concurrency';
 import { resolveProfile, shortAddr } from '@/lib/profiles';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
-import TokenIcon from '@/components/TokenIcon';
 import Avatar from '@/components/Avatar';
 import ProfileEditor from '@/components/ProfileEditor';
+import WalletAssetRow from '@/components/wallet/WalletAssetRow';
 import { Pencil } from 'lucide-react';
+
+// How many assets are priced at once: fast enough to feel live, gentle on Horizon.
+const ASSET_CONCURRENCY = 3;
 
 const TABS = [
   { value: 'assets', label: 'Assets' },
@@ -73,81 +78,81 @@ export default function Portfolio() {
     };
   }, [wallet?.address]);
 
-  // Enrich assets
+  // Every asset gets live on-chain figures — its price, what the holding is worth,
+  // buy/sell pressure and book depth — streamed in row by row, so the list never
+  // waits on Horizon.
   useEffect(() => {
     if (!balances?.assets?.length) {
       setEnrichedAssets([]);
       return;
     }
     let active = true;
-    const initial = balances.assets.map((a) => ({ ...a, symbol: a.code }));
-    if (active) setEnrichedAssets(initial);
+    setEnrichedAssets(balances.assets.map((a) => ({ ...a, symbol: a.code })));
 
     (async () => {
-      let tokenMap = {};
+      let tokens = [];
+      let collections = [];
       try {
-        const appTokens = await base44.entities.Token.list('-created_date', 300);
-        for (const t of appTokens) {
-          if (t.issuer) tokenMap[t.issuer] = t;
-        }
+        [tokens, collections] = await Promise.all([
+          base44.entities.Token.list('-created_date', 300),
+          base44.entities.NftCollection.list('-created_date', 300),
+        ]);
       } catch {
-        /* ignore */
+        /* the rows still show their plain balances */
       }
 
+      const tokenByIssuer = {};
+      for (const t of tokens || []) if (t.issuer) tokenByIssuer[t.issuer] = t;
       // A collection's editions are a Stellar asset too, so its artwork belongs
       // on the same wallet row as the balance.
-      let nftMap = {};
-      try {
-        const collections = await base44.entities.NftCollection.list('-created_date', 300);
-        for (const c of collections) {
-          if (c.issuer_public_key) nftMap[c.issuer_public_key] = c;
-        }
-      } catch {
-        /* ignore */
+      const nftByIssuer = {};
+      for (const c of collections || []) {
+        if (c.issuer_public_key) nftByIssuer[c.issuer_public_key] = c;
       }
 
-      for (let i = 0; i < balances.assets.length; i++) {
-        if (!active) return;
-        const a = balances.assets[i];
-        let enriched = { ...a, symbol: a.code };
+      await mapLimit(balances.assets, ASSET_CONCURRENCY, async (a) => {
+        const appToken = tokenByIssuer[a.issuer];
+        const appNft = nftByIssuer[a.issuer];
+        const meta = appToken
+          ? {
+              name: appToken.name,
+              logo: appToken.image_url,
+              homeDomain: appToken.custom_domain || appToken.home_domain,
+            }
+          : appNft
+          ? { name: appNft.name, logo: appNft.media_url, homeDomain: appNft.home_domain }
+          : undefined;
 
-        const appToken = tokenMap[a.issuer];
-        const appNft = nftMap[a.issuer];
-        if (appToken) {
-          enriched = {
-            ...a,
-            image_url: appToken.image_url,
-            name: appToken.name,
-            domain: appToken.custom_domain || appToken.home_domain,
-            symbol: appToken.symbol,
-          };
-        } else if (appNft) {
-          enriched = {
-            ...a,
-            image_url: appNft.media_url,
-            name: appNft.name,
-            domain: appNft.home_domain,
-            symbol: a.code,
-          };
-        } else {
-          const meta = await fetchTokenMetadata(a.code, a.issuer);
-          enriched = {
-            ...a,
-            image_url: meta?.logo || null,
-            name: meta?.name || a.code,
-            domain: meta?.homeDomain || null,
-            symbol: a.code,
-          };
+        let data = null;
+        try {
+          data = await loadAssetData({ code: a.code, issuer: a.issuer, limit: 50, meta });
+        } catch {
+          /* this asset has no market data to show */
         }
-
         if (!active) return;
-        setEnrichedAssets((prev) => {
-          const next = [...prev];
-          next[i] = enriched;
-          return next;
-        });
-      }
+
+        const row = {
+          ...a,
+          symbol: appToken?.symbol || a.code,
+          name: appToken?.name || appNft?.name || data?.meta?.name || a.code,
+          image_url: appToken?.image_url || appNft?.media_url || data?.meta?.logo || null,
+          domain:
+            appToken?.custom_domain ||
+            appToken?.home_domain ||
+            appNft?.home_domain ||
+            data?.meta?.homeDomain ||
+            null,
+          price: data?.price || null,
+          change24h: data?.change24h ?? null,
+          pressure: data?.pressure || null,
+          depth: data?.depth || null,
+        };
+        setEnrichedAssets((prev) =>
+          prev.map((p) => (p.code === a.code && p.issuer === a.issuer ? row : p))
+        );
+      });
     })();
+
     return () => {
       active = false;
     };
@@ -355,20 +360,8 @@ export default function Portfolio() {
             ) : !balances || balances.assets.length === 0 ? (
               <p className="text-sm text-white/30">No trustline assets yet.</p>
             ) : (
-              (enrichedAssets.length > 0 ? enrichedAssets : balances.assets).map((a, i) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-3 bg-[#141518] rounded-xl mb-2">
-                  <TokenIcon token={a} size={36} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm">${a.symbol || a.code}</div>
-                    <div className="text-xs text-white/40 truncate">
-                      {a.domain || `${a.issuer.slice(0, 8)}…${a.issuer.slice(-4)}`}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium">{a.balance.toFixed(2)}</div>
-                    <div className="text-xs text-white/40">{a.code}</div>
-                  </div>
-                </div>
+              (enrichedAssets.length > 0 ? enrichedAssets : balances.assets).map((a) => (
+                <WalletAssetRow key={`${a.code}:${a.issuer}`} asset={a} />
               ))
             )}
           </>

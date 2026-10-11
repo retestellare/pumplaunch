@@ -205,7 +205,8 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
       }
       await signAndSubmit(tx);
 
-      if (mode === 'market') {
+      // A token that lives outside the app has no record to attach a trade to.
+      if (mode === 'market' && token.id) {
         await base44.entities.Trade.create({
           token_id: token.id,
           token_symbol: token.symbol,

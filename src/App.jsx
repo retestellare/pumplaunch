@@ -11,6 +11,7 @@ import TabStack from '@/components/TabStack';
 import { TAB_PATHS } from '@/lib/tabs';
 import { WalletProvider } from '@/lib/wallet';
 import TokenDetail from '@/pages/TokenDetail';
+import WalletAsset from '@/pages/WalletAsset';
 import TokenHolders from '@/pages/TokenHolders';
 import Guide from '@/pages/Guide';
 import Profile from '@/pages/Profile';
@@ -42,6 +43,7 @@ function AppRoutes() {
           <Routes location={location}>
             <Route path="/token/:id" element={<TokenDetail />} />
             <Route path="/token/:id/holders" element={<TokenHolders />} />
+            <Route path="/asset/:code/:issuer" element={<WalletAsset />} />
             <Route path="/guide" element={<Guide />} />
             <Route path="/profile/:walletAddress" element={<Profile />} />
             <Route path="*" element={<PageNotFound />} />

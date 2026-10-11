@@ -750,14 +750,14 @@ function assetParams(prefix, quote) {
 }
 
 // Trades for one quote market, whichever side of the pair the token sits on.
-async function fetchQuoteTrades(assetCode, issuer, quote) {
+async function fetchQuoteTrades(assetCode, issuer, quote, limit = 50) {
   const assetType = assetCode.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
   const tokenBase = `base_asset_type=${assetType}&base_asset_code=${assetCode}&base_asset_issuer=${issuer}`;
   const tokenCounter = `counter_asset_type=${assetType}&counter_asset_code=${assetCode}&counter_asset_issuer=${issuer}`;
 
   const [baseData, counterData] = await Promise.all([
-    horizonJsonSafe(`/trades?${tokenBase}&${assetParams('counter', quote)}&limit=50&order=desc`),
-    horizonJsonSafe(`/trades?${assetParams('base', quote)}&${tokenCounter}&limit=50&order=desc`),
+    horizonJsonSafe(`/trades?${tokenBase}&${assetParams('counter', quote)}&limit=${limit}&order=desc`),
+    horizonJsonSafe(`/trades?${assetParams('base', quote)}&${tokenCounter}&limit=${limit}&order=desc`),
   ]);
 
   const seen = new Set();
@@ -840,10 +840,10 @@ export function buildXlmToUsdcSwapTransaction({ sourceAccount, xlmAmount, minUsd
   return tx.setTimeout(300).build();
 }
 
-export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0 } = {}) {
+export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0, limit = 50 } = {}) {
   const [holdersData, ...tradeSets] = await Promise.all([
     horizonJsonSafe(`/accounts?asset=${assetCode}:${issuer}&limit=200`),
-    ...quotes.map((q) => fetchQuoteTrades(assetCode, issuer, q)),
+    ...quotes.map((q) => fetchQuoteTrades(assetCode, issuer, q, limit)),
   ]);
 
   // Holders are wallets with a positive balance. The issuer and empty trustlines
@@ -925,6 +925,36 @@ export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlm
     change24h,
     lastPrice: priceHistory.length ? priceHistory[priceHistory.length - 1] : 0,
   };
+}
+
+// Every fill of one asset, priced in XLM and oriented from the taker's side, so
+// the candles, the buy/sell pressure and the trade list all read one pass of the
+// same data. `side` is 'buy' when the taker ended up with the asset and 'sell'
+// when they gave it away; `xlm` is the quote leg, which is what volume counts.
+export function priceFills(trades, assetCode, issuer, xlmPerUsdc = 0) {
+  const rateOf = (quote) => (quote === 'usdc' ? xlmPerUsdc : 1);
+  const fills = [];
+  for (const t of trades || []) {
+    const isTokenBase = t.base_asset_code === assetCode && t.base_asset_issuer === issuer;
+    const n = parseFloat(t.price?.n);
+    const d = parseFloat(t.price?.d);
+    if (!n || !d) continue;
+    const price = (isTokenBase ? n / d : d / n) * rateOf(t.quote);
+    if (!(price > 0)) continue;
+    // The base leg was the one sold when base_is_seller is set, so the taker
+    // bought the asset whenever the leg that sold is not the asset's own.
+    const tokenWasSold = isTokenBase ? t.base_is_seller === true : t.base_is_seller === false;
+    fills.push({
+      id: t.id,
+      time: t.ledger_close_time,
+      price,
+      side: tokenWasSold ? 'sell' : 'buy',
+      tokens: parseFloat(isTokenBase ? t.base_amount : t.counter_amount) || 0,
+      xlm: (parseFloat(isTokenBase ? t.counter_amount : t.base_amount) || 0) * rateOf(t.quote),
+      quote: t.quote || 'xlm',
+    });
+  }
+  return fills.sort((a, b) => new Date(a.time) - new Date(b.time));
 }
 
 export function formatOnChainTrades(trades, assetCode, issuer, maxCount = 20, xlmPerUsdc = 0) {

@@ -4,10 +4,10 @@ import { ChevronLeft } from 'lucide-react';
 import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
 import TokenIcon from '@/components/TokenIcon';
-import SimpleChart from '@/components/SimpleChart';
+import PriceChartCard from '@/components/charts/PriceChartCard';
 import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
-import { formatOnChainTrades } from '@/lib/stellar';
+import { formatOnChainTrades, priceFills } from '@/lib/stellar';
 import { fetchTokenMarket, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
@@ -84,7 +84,8 @@ export default function TokenDetail() {
   const holders = stats ? stats.holders : token.holders ?? null;
   const volume24h = stats ? stats.volume24h : 0;
   const marketCap = price != null ? price * (token.supply || 0) : null;
-  const history = stats?.priceHistory || [];
+  // One pass of the fills feeds the candles and the trade list below.
+  const fills = priceFills(stats?.trades || [], token.asset_code, token.issuer, xlmPerUsdc);
 
   return (
     <div className="min-h-screen bg-[#0a0b0d] text-white max-w-lg mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
@@ -132,11 +133,7 @@ export default function TokenDetail() {
               : 'No liquidity yet — this token has no pool and no open offers.'}
           </p>
           <div className="mt-3">
-            {history.length > 1 ? (
-              <SimpleChart data={history} color={positive ? '#00ff88' : '#ff3b5c'} height={80} />
-            ) : (
-              <p className="text-[11px] text-white/30 pt-1">Not enough trades yet for a chart.</p>
-            )}
+            <PriceChartCard fills={fills} height={150} />
           </div>
         </div>
 

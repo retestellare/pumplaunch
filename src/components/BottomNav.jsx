@@ -14,8 +14,12 @@ export default function BottomNav() {
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0a0b0d] border-t border-white/10 max-w-lg mx-auto select-none pb-[env(safe-area-inset-bottom)]">
       <div className="flex">
         {ITEMS.map(({ path, label, icon: Icon }) => {
-          // The NFT collection screen lives under the Launch tab.
-          const active = pathname === path || (path === '/launch' && pathname === '/launch-nft');
+          // The NFT collection screen lives under the Launch tab, and an asset's
+          // own screen under Wallet.
+          const active =
+            pathname === path ||
+            (path === '/launch' && pathname === '/launch-nft') ||
+            (path === '/portfolio' && pathname.startsWith('/asset/'));
           return (
             <Link
               key={path}
