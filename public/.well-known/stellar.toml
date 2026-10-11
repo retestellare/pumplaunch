@@ -1,52 +1,67 @@
-# stellar.toml — Stellar Pump token registry
-# https://stellarlaunch.base44.app/.well-known/stellar.toml
+# stellar.toml — Stellar Pump asset registry
+# Every token and NFT collection launched on Stellar Pump. For the always-current
+# version of this registry, see https://pumplaunch.app/functions/stellarToml
 
 [DOCUMENTATION]
 ORG_NAME="Stellar Pump"
-ORG_URL="https://stellarlaunch.base44.app"
-ORG_DESCRIPTION="Stellar Pump — a real-world Stellar Lumens memecoin launchpad and trading platform. Launch, trade, and track meme tokens on the Stellar mainnet."
-ORG_KEYWORDS="stellar, memecoin, launchpad, xlm, dex"
+ORG_URL="https://pumplaunch.app"
+ORG_DESCRIPTION="Stellar Pump — launch and trade memecoins and NFT collections on the Stellar network, with real on-chain order books, pool trading and fair-launch bonding curves."
+ORG_KEYWORDS="stellar, memecoin, nft, launchpad, xlm, dex"
+
+[[CURRENCIES]]
+code="ASRT"
+issuer="GDKTGIBMXXJW5D2OYA7E4TIGRLO54LPGMYFDZ5GTKTX4GTWAXAESJABQ"
+name="Astra"
+desc="A community-driven token to unite digital pioneers. Limited supply, transparency, and maximum profits! Don't get left behind, join the ASTRA crew and reach for the stars! ✨🔭"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/b83c20f1d_32123.png"
+
+[[CURRENCIES]]
+code="POOL"
+issuer="GC5WAYBQ3RG4AUIANI35PB74CXXZE42NLZ2UTSQTC2WHAQ7NSBFUWFDK"
+name="Doublepool🏊‍♀️"
+desc="​🏄‍♂️ Why splash in a puddle when you can swim in the DUAL POOL? $POOL is flexing on all single-paired tokens with double liquidity in XLM & USDC. While other tokens drown in low volume, $POOL is stacking trophies and pumping hard. Don't be the token standing at the edge—dive into the deepest pool on Stellar Pump! 🏆💦 ​Get in early or watch us moon!"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/85cfe937a_31505.jpg"
 
 [[CURRENCIES]]
 code="AMNESIA"
 issuer="GDO2UN56UFF3MEBVJQPPFE36U3GCTKH4SHCSKXJRRO525LNTD3J5MUQG"
 name="Amnesia"
-desc="Amnesia Token ($AMNESIA) is the ultimate meme coin for those who live the crypto world with complete ease and zero short-term memory."
+desc="Amnesia Token ($AMNESIA) is the ultimate meme coin for those who live the crypto world with complete ease and zero short-term memory. ​Born from the intersection of cannabis culture and frenetic on-chain trading, Amnesia celebrates that unmistakable feeling of opening your wallet, finding a token purchased at 3 a.m., and wondering, \"Wait, when did I buy this?\" ​Without complex spreadsheets or pretentious ROADMAPs, the project is based on a simple philosophy: Relax, HODL, and forget the seed phrase.🌿"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/d716895c0_31146.png"
 
 [[CURRENCIES]]
 code="NOSS"
 issuer="GBU37IFOGZSUHIKL2EPHAFOFGJFK4TS56A3YPR2E6AIPWQVADHOX6MKP"
-name="Noosss"
-desc="More NOS than sense of proportion. Welcome to the fast lane. NOOOOSS!!!"
+name="Noosss🔥💨💨💨"
+desc="🔥 More NOS than sense of proportion. 🏁 Welcome to the fast lane. 💬 NOOOOSS!!!"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/69ea7ee39_31023.png"
 
 [[CURRENCIES]]
 code="SETH"
 issuer="GC5EVHC4TUIVWOHYZPDTQUMIPOLVYLIFQ25YY6NW2YXT2Q4FAQDIS4MI"
 name="Black sun"
-desc="Black Sun (BS) is the new, fiery meme token launched on the Stellar (XLM) network. With its aggressive design and cosmic energy, it combines the near-instantaneous speed and low fees of the Stellar ecosystem with the irreverent nature of memecoin culture."
+desc="Black Sun (BS) is the new, fiery meme token launched on the Stellar (XLM) network. With its aggressive design and cosmic energy, it combines the near-instantaneous speed and low fees of the Stellar ecosystem with the irreverent nature of memecoin culture.☯️☀️🖤"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/15b2e263e_30622.png"
 
 [[CURRENCIES]]
 code="XTAI"
 issuer="GAJ2EGSM77SUWTSSXTE5D6L4SMZOFIFRVK7DDP3OXASEWARRMA53O5CY"
 name="TerminatorAI"
-desc="Terminator AI ($TAI) is the meme token designed to conquer the blockchain with laughter and artificial intelligence."
+desc="Terminator AI ($TAI) is the meme token designed to conquer the blockchain with laughter and artificial intelligence. Halfway between an unstoppable futuristic cyborg and a friendly web mascot, Terminator AI eliminates FUD and brings only memes, community, and super-bullish energy. You can't stop it... say hello! 🤖🚀"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/7be40e90f_29942.png"
 
 [[CURRENCIES]]
 code="LAUNCH"
 issuer="GDG43QK5I2YDIOTMZDG2CHYGN2QY4NZXCXTNZLIKKMY4VJOV5MXMLBWG"
 name="Launch token"
-desc="It's not just a rocket; it's a force of nature, carrying our intrepid Shiba Inu astronaut with it. Its sole goal: intergalactic greatness!"
+desc="It's not just a rocket; it's a force of nature, leaving behind the mainland and a glittering cascade of other tokens (oops!), carrying our intrepid Shiba Inu astronaut with it. Its sole goal: intergalactic greatness! ​🌟 Why Launch? Because we don't just dream of the stars, we actually go there, and we do it with unmistakable style!"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/63b30ef58_29739.png"
 
 [[CURRENCIES]]
 code="SBULL"
 issuer="GB33BZYBJUAKKITLCBMP5GPSSQ4LFZXGSXYIVOLHXAMK5RMYEIOXQD6X"
 name="Stellar bull"
-desc="Stellar Bull ($SB) is the galactic memecoin designed to propel your portfolio straight to the moon."
+desc="Stellar Bull ($SB) is the galactic memecoin designed to propel your portfolio straight to the moon 🚀. ​Combining the unstoppable power of the bull market with the infinite possibilities of the cosmos, $SB is designed for those who aren't satisfied with the usual technical analysis and are banking on the pure energy of the community. No compromises, just bullish orbits and a stellar trajectory! 🌌🐂"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/009aef56c_29623.png"
 
 [[CURRENCIES]]
@@ -55,3 +70,12 @@ issuer="GBUPZWBBUTFDICDX5KRBPBOC3ISWCEQ6NVHFOV2MY6JQGNQJYVQRGJMA"
 name="Roket"
 desc="Rocket meme launch"
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/803b1f1bf_29525.png"
+
+[[CURRENCIES]]
+code="TRINITY"
+issuer="GAZUUN7EDDAJLSEXD5SCOFPEUYIQL773NSY5FEPICUEPTK4YCW45GGUY"
+name="Matrix collection"
+desc="Welcome to the Matrix of crypto and NFTs. TRINITY isn't just a token, it's the red pill for those who want to wake up from the slumber of traditional markets and embrace the chaos of memes. Led by the ultimate trinity (Doge, Shiba, and Pikachu), this collection combines the Matrix's green cyberpunk aesthetic with the unstoppable power of HODL. Choose the right pill and join the crypto resistance! 🚀"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/806dffbdb_32133.jpg"
+display_decimals=0
+fixed_number=10
