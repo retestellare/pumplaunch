@@ -182,11 +182,14 @@ export async function mintEditionOnChain({ address, collection }) {
   return signAndSubmit(purchase);
 }
 
-async function reconcile(collection, claimed) {
+// The creator's sale offer is the primary market, so the network is the source of
+// truth for how many editions are left: the counter is re-read from it after any
+// purchase and can never drift from what is really on sale.
+export async function syncCollectionMinted(collection, claimed = 0) {
   try {
     const state = await fetchCollectionState(collection);
     const total = Math.max(1, collection.total_supply || 1);
-    const minted = Math.min(total, Math.max(claimed, state?.minted || 0));
+    const minted = Math.min(total, Math.max(claimed, collection.minted_count || 0, state?.minted || 0));
     const patch = { minted_count: minted };
     if (minted >= total) patch.status = 'sold_out';
     return await base44.entities.NftCollection.update(collection.id, patch);
@@ -198,7 +201,7 @@ async function reconcile(collection, claimed) {
 export async function mintNft({ address, collection }) {
   await mintEditionOnChain({ address, collection });
   const claim = await mintEdition(collection);
-  const synced = await reconcile(collection, claim.minted);
+  const synced = await syncCollectionMinted(collection, claim.minted);
   return {
     ok: true,
     minted: synced?.minted_count ?? claim.minted,

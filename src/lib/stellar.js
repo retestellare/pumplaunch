@@ -400,8 +400,9 @@ export function buildLimitSellTransaction({ sourceAccount, assetCode, issuer, qu
   return tx.setTimeout(300).build();
 }
 
-export function buildCancelOfferTransaction({ sourceAccount, side, assetCode, issuer, offerId, price }) {
+export function buildCancelOfferTransaction({ sourceAccount, side, assetCode, issuer, quote = 'xlm', offerId, price }) {
   const asset = new StellarSdk.Asset(assetCode, issuer);
+  const other = quoteAsset(quote);
   const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
@@ -410,7 +411,7 @@ export function buildCancelOfferTransaction({ sourceAccount, side, assetCode, is
   if (side === 'buy') {
     tx.addOperation(
       StellarSdk.Operation.manageBuyOffer({
-        selling: StellarSdk.Asset.native(),
+        selling: other,
         buying: asset,
         buyAmount: '0',
         price: formatPrice(price),
@@ -421,7 +422,7 @@ export function buildCancelOfferTransaction({ sourceAccount, side, assetCode, is
     tx.addOperation(
       StellarSdk.Operation.manageSellOffer({
         selling: asset,
-        buying: StellarSdk.Asset.native(),
+        buying: other,
         amount: '0',
         price: formatPrice(price),
         offerId: String(offerId),
@@ -586,9 +587,22 @@ export async function fetchOrderBook(assetCode, issuer, quote = 'xlm') {
   const bestBid = bidPrices.length ? Math.max(...bidPrices) : 0;
   const bestAsk = askPrices.length ? Math.min(...askPrices) : 0;
 
+  // Every level keeps its own price and size, so a purchase can be costed across
+  // as many offers as it takes to fill instead of only the best one.
+  const askLevels = asks
+    .map((row) => ({ price: priceOf(row), amount: parseFloat(row.amount) || 0 }))
+    .filter((l) => l.price > 0 && l.amount > 0)
+    .sort((a, b) => a.price - b.price);
+  const bidLevels = bids
+    .map((row) => ({ price: priceOf(row), amount: parseFloat(row.amount) || 0 }))
+    .filter((l) => l.price > 0 && l.amount > 0)
+    .sort((a, b) => b.price - a.price);
+
   return {
     bestBid,
     bestAsk,
+    asks: askLevels,
+    bids: bidLevels,
     spread: bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0,
     bidAmount: bids.length ? parseFloat(bids[0].amount) || 0 : 0,
     askAmount: asks.length ? parseFloat(asks[0].amount) || 0 : 0,

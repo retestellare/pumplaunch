@@ -7,6 +7,7 @@ import { estimateMintCost, fetchCollectionState, isOnChain, mintNft } from '@/li
 import { loadAccount } from '@/lib/stellar';
 import MintProgress from './MintProgress';
 import NftMintShare from './NftMintShare';
+import NftTradeSheet from './NftTradeSheet';
 import { Sparkles } from 'lucide-react';
 
 export default function NftCard({ collection, onMinted }) {
@@ -16,6 +17,7 @@ export default function NftCard({ collection, onMinted }) {
   const [confirming, setConfirming] = useState(false);
   const [cost, setCost] = useState(null);
   const [mintedEdition, setMintedEdition] = useState(null);
+  const [trading, setTrading] = useState(false);
   const { minted, soldOut } = mintProgress(collection);
   const onChain = isOnChain(collection);
 
@@ -124,17 +126,30 @@ export default function NftCard({ collection, onMinted }) {
           <span className="text-sm font-bold">{fmtMintPrice(collection)}</span>
           {onChain && <span className="ml-2 text-[10px] text-white/30">on Stellar Mainnet</span>}
         </div>
-        {!confirming && (
-          <button
-            onClick={prepare}
-            disabled={busy || soldOut || !onChain}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition select-none disabled:opacity-50 ${
-              soldOut || !onChain ? 'bg-white/5 text-white/30' : 'bg-[#00ff88] text-black'
-            }`}
-          >
-            {!onChain ? 'Not on-chain' : soldOut ? 'Sold out' : wallet ? 'Mint' : 'Connect'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* A drop is never a dead end: editions can be bought from, and sold to,
+              other holders on the DEX. */}
+          {onChain && (
+            <button
+              onClick={() => setTrading(true)}
+              disabled={busy}
+              className="px-3 py-2 rounded-xl text-xs font-bold bg-white/5 text-white/70 transition select-none disabled:opacity-50"
+            >
+              Trade
+            </button>
+          )}
+          {!confirming && (
+            <button
+              onClick={prepare}
+              disabled={busy || soldOut || !onChain}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition select-none disabled:opacity-50 ${
+                soldOut || !onChain ? 'bg-white/5 text-white/30' : 'bg-[#00ff88] text-black'
+              }`}
+            >
+              {!onChain ? 'Not on-chain' : soldOut ? 'Sold out' : wallet ? 'Mint' : 'Connect'}
+            </button>
+          )}
+        </div>
       </div>
 
       {mintedEdition && !confirming && (
@@ -181,6 +196,13 @@ export default function NftCard({ collection, onMinted }) {
           </div>
         </div>
       )}
+
+      <NftTradeSheet
+        open={trading}
+        collection={collection}
+        onClose={() => setTrading(false)}
+        onTraded={onMinted}
+      />
     </div>
   );
 }
