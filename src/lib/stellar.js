@@ -784,6 +784,12 @@ export function planPoolLaunch({ poolType = 'xlm', input, xlmPerUsdc = 0 }) {
   if (usable) {
     if (poolType === 'usdc') {
       deposits.usdc = amount;
+    } else if (poolType === 'split') {
+      // One liquidity amount, two pools: half seeds each side. Both pools price
+      // the token at BASE_PRICE, so the two markets cannot be arbitraged.
+      const half = amount / 2;
+      deposits.xlm = half;
+      deposits.usdc = half / xlmPerUsdc;
     } else if (poolType === 'dual') {
       deposits.xlm = amount;
       deposits.usdc = amount / xlmPerUsdc;

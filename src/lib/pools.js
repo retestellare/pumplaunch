@@ -28,6 +28,12 @@ export const POOL_TYPES = [
     desc: 'Both pools at once — deep liquidity from two sides.',
     pools: ['xlm', 'usdc'],
   },
+  {
+    value: 'split',
+    label: 'Split Pool (XLM & USDC)',
+    desc: 'The initial liquidity is split across an XLM pool and a USDC pool.',
+    pools: ['xlm', 'usdc'],
+  },
 ];
 
 export function quoteOf(key) {

@@ -8,6 +8,7 @@ import WalletButton from '@/components/WalletButton';
 import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
 import LaunchGuide from '@/components/LaunchGuide';
 import OptionGroup from '@/components/launch/OptionGroup';
+import PoolPairSelector, { fmtPoolAmount } from '@/components/launch/PoolPairSelector';
 import ShareButton from '@/components/ShareButton';
 import { launchShare } from '@/lib/share';
 import { ensureOgCard } from '@/lib/ogImage';
@@ -40,7 +41,7 @@ import {
   USDC_CODE,
   USDC_ISSUER,
 } from '@/lib/stellar';
-import { POOL_TYPES, poolsForType } from '@/lib/pools';
+import { POOL_TYPES, poolsForType, quoteOf } from '@/lib/pools';
 import {
   loadAttempt,
   saveAttempt,
@@ -118,8 +119,8 @@ export default function LaunchToken() {
   const [availableUsdc, setAvailableUsdc] = useState(null);
   const [usdcTrustline, setUsdcTrustline] = useState(false);
   const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
-  // Every new launch creates a single XLM market.
-  const poolType = 'xlm';
+  // Which pool pair an Auto-Pool launch seeds. Bonding-curve launches stay XLM.
+  const [poolType, setPoolType] = useState('xlm');
   const [attempt, setAttempt] = useState(null);
   const [stepStatuses, setStepStatuses] = useState({});
   const [waiting, setWaiting] = useState(false);
@@ -214,8 +215,12 @@ export default function LaunchToken() {
     }
     const il = parseFloat(initialLiquidity);
     if (autoPool) {
+      if (needsUsdc && !(xlmPerUsdc > 0)) {
+        toast({ title: 'Still reading the XLM/USDC rate', description: 'Give it a moment and try again.', variant: 'destructive' });
+        return false;
+      }
       if (!il || il < 10) {
-        toast({ title: 'Initial Liquidity must be at least 10 XLM for Auto-Pool', variant: 'destructive' });
+        toast({ title: `Initial Liquidity must be at least 10 ${inputUnit} for Auto-Pool`, variant: 'destructive' });
         return false;
       }
     } else if (initialLiquidity && (!il || il < 10)) {
@@ -639,7 +644,7 @@ export default function LaunchToken() {
       auto_pool: autoPool,
       initial_liquidity: initialLiquidity,
       curve,
-      pool_type: poolType,
+      pool_type: effectivePoolType,
       image_url: null,
       token_id: null,
       issuer_public_key: null,
@@ -681,9 +686,19 @@ export default function LaunchToken() {
   };
 
   const curvePreset = CURVE_PRESETS[curve];
-  const plan = planPoolLaunch({ poolType, input: initialLiquidity, xlmPerUsdc });
+  // Only an Auto-Pool launch seeds the chosen pool pair; a bonding-curve launch
+  // always seeds one XLM pool.
+  const effectivePoolType = autoPool ? poolType : 'xlm';
+  const plan = planPoolLaunch({ poolType: effectivePoolType, input: initialLiquidity, xlmPerUsdc });
   const poolCount = plan.quotes.length;
   const needsUsdc = plan.quotes.includes('usdc');
+  const inputUnit = effectivePoolType === 'usdc' ? 'USDC' : 'XLM';
+  const rateReady = !needsUsdc || xlmPerUsdc > 0;
+  const allocation = plan.quotes.map((q) => ({
+    quote: q,
+    amount: plan.deposits[q] || 0,
+    tokens: plan.tokensByQuote[q] || 0,
+  }));
   const derivedSupply = plan.supply;
   const cost = estimateLaunchCost({
     liquidityPercent: liquidity,
@@ -849,20 +864,25 @@ export default function LaunchToken() {
 
             <div>
               <label className="text-xs text-white/40 mb-1.5 block">
-                Initial Liquidity (XLM)
+                Initial Liquidity ({inputUnit})
                 {autoPool && <span className="text-[#00ff88]"> · required</span>}
               </label>
               <input
                 type="number"
                 value={initialLiquidity}
                 onChange={(e) => setInitialLiquidity(e.target.value)}
-                placeholder={autoPool ? 'Min 10 XLM' : 'Optional (min 10 XLM)'}
+                placeholder={autoPool ? `Min 10 ${inputUnit}` : 'Optional (min 10 XLM)'}
                 disabled={blocked}
                 className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
               />
               <p className="text-[10px] text-white/30 mt-1">
-                Minimum 10 XLM. Recommended 50+ XLM for lower initial price slippage.
+                Minimum 10 {inputUnit}. Recommended 50+ for lower initial price slippage.
               </p>
+              {autoPool && effectivePoolType === 'split' && (
+                <p className="text-[10px] text-white/30 mt-1">
+                  Half seeds the XLM pool, half the USDC pool at the live XLM/USDC rate.
+                </p>
+              )}
             </div>
           </div>
 
@@ -888,6 +908,19 @@ export default function LaunchToken() {
               }}
               disabled={blocked}
             />
+
+            {autoPool && (
+              <PoolPairSelector
+                poolType={poolType}
+                onSelect={setPoolType}
+                allocation={allocation}
+                symbol={form.symbol || 'tokens'}
+                needsUsdc={needsUsdc}
+                rateReady={rateReady}
+                usdcTrustline={usdcTrustline}
+                disabled={blocked}
+              />
+            )}
 
             {!autoPool && (
               <OptionGroup
@@ -948,13 +981,15 @@ export default function LaunchToken() {
 
           <button
             onClick={review}
-            disabled={!wallet || blocked || (wallet && availableXlm !== null && !balanceOk)}
+            disabled={!wallet || blocked || !rateReady || (wallet && availableXlm !== null && !balanceOk)}
             className="w-full py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
           >
             {blocked
               ? 'Resolve launch above'
               : !wallet
               ? 'Connect Wallet First'
+              : !rateReady
+              ? 'Reading XLM/USDC rate…'
               : wallet && availableXlm !== null && !balanceOk
               ? 'Insufficient balance'
               : 'Review Launch'}
@@ -972,21 +1007,26 @@ export default function LaunchToken() {
               <Row label="Total Supply" value={(autoPool ? Math.floor(derivedSupply) : parseFloat(form.supply)).toLocaleString()} />
               <Row
                 label="Launch Type"
-                value={POOL_TYPES.find((p) => p.value === poolType)?.label || 'Single Pool (XLM)'}
+                value={POOL_TYPES.find((p) => p.value === effectivePoolType)?.label || 'Single Pool (XLM)'}
               />
               {autoPool ? (
                 <>
                   <Row label="Mode" value="100% Auto-Pool" />
-                  {plan.deposits.xlm > 0 && (
-                    <Row label="Initial Liquidity (XLM)" value={`${plan.deposits.xlm} XLM`} />
-                  )}
-                  {plan.deposits.usdc > 0 && (
-                    <Row label="Initial Liquidity (USDC)" value={`${plan.deposits.usdc.toFixed(2)} USDC`} />
-                  )}
-                  <Row
-                    label="Market"
-                    value={poolCount === 2 ? 'Both Stellar Liquidity Pools' : 'Stellar Liquidity Pool'}
-                  />
+                  <Row label="Initial Liquidity" value={`${fmtPoolAmount(initialLiquidity)} ${inputUnit}`} />
+                  {allocation.map((a) => (
+                    <Row
+                      key={a.quote}
+                      label={`${poolCount > 1 ? `${quoteOf(a.quote).label} Pool` : 'Pool'}`}
+                      value={
+                        a.amount > 0
+                          ? `${fmtPoolAmount(a.amount)} ${quoteOf(a.quote).label} + ${Math.floor(a.tokens).toLocaleString()} ${
+                              form.symbol.toUpperCase()
+                            }`
+                          : '—'
+                      }
+                    />
+                  ))}
+                  {needsUsdc && !usdcTrustline && <Row label="USDC Trustline" value="Added in this launch" />}
                 </>
               ) : (
                 <>
@@ -1095,6 +1135,10 @@ export default function LaunchToken() {
           <div className="bg-[#141518] rounded-2xl p-4 space-y-2 text-sm">
             <Row label="Asset" value={`$${attempt.symbol}`} />
             <Row label="Mode" value={attempt.auto_pool ? '100% Auto-Pool' : `Bonding Curve · ${attempt.liquidity}%`} />
+            <Row
+              label="Pool"
+              value={POOL_TYPES.find((p) => p.value === (attempt.pool_type || 'xlm'))?.label || 'Single Pool (XLM)'}
+            />
             <Row label="Supply" value={Math.floor(parseFloat(attempt.supply) || 0).toLocaleString()} />
             {attempt.issuer_public_key && (
               <Row label="Issuer" value={`${attempt.issuer_public_key.slice(0, 8)}…${attempt.issuer_public_key.slice(-4)}`} />
