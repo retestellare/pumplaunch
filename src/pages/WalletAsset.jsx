@@ -14,7 +14,6 @@ import ShareButton from '@/components/ShareButton';
 import WalletButton from '@/components/WalletButton';
 import PriceChartCard from '@/components/charts/PriceChartCard';
 import AssetPressure from '@/components/AssetPressure';
-import TradingPanel from '@/components/TradingPanel';
 
 function fmtXlm(n) {
   const v = parseFloat(n) || 0;
@@ -176,13 +175,6 @@ export default function WalletAsset() {
           depth={data?.depth}
           symbol={token.symbol}
           quote={data?.market?.buyQuote || 'xlm'}
-        />
-
-        <TradingPanel
-          token={token}
-          market={data?.market}
-          xlmPerUsdc={data?.xlmPerUsdc || 0}
-          onTrade={load}
         />
 
         <div className="bg-[#141518] rounded-2xl p-4">
