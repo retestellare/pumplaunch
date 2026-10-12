@@ -10,7 +10,7 @@ import NftMintShare from './NftMintShare';
 import NftTradeSheet from './NftTradeSheet';
 import { Sparkles } from 'lucide-react';
 
-export default function NftCard({ collection, onMinted }) {
+export default function NftCard({ collection, state, onMinted }) {
   const { wallet, connect } = useWallet();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
@@ -20,6 +20,11 @@ export default function NftCard({ collection, onMinted }) {
   const [trading, setTrading] = useState(false);
   const { minted, soldOut } = mintProgress(collection);
   const onChain = isOnChain(collection);
+  // A drop can be finished, or its sale order closed, while the record still
+  // reads "live": the buttons follow the network so they never invite a mint
+  // that cannot fill.
+  const saleClosed = !!state && !state.onSale && !soldOut;
+  const canMint = onChain && !soldOut && !saleClosed;
 
   // A mint is a mainnet purchase, so the price, the fee and any trustline
   // reserve are shown before the wallet is asked to sign.
@@ -128,12 +133,14 @@ export default function NftCard({ collection, onMinted }) {
         </div>
         <div className="flex items-center gap-2">
           {/* A drop is never a dead end: editions can be bought from, and sold to,
-              other holders on the DEX. */}
+              other holders on the DEX — the live path once nothing is mintable. */}
           {onChain && (
             <button
               onClick={() => setTrading(true)}
               disabled={busy}
-              className="px-3 py-2 rounded-xl text-xs font-bold bg-white/5 text-white/70 transition select-none disabled:opacity-50"
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition select-none disabled:opacity-50 ${
+                canMint ? 'bg-white/5 text-white/70' : 'bg-[#00ff88] text-black'
+              }`}
             >
               Trade
             </button>
@@ -141,16 +148,32 @@ export default function NftCard({ collection, onMinted }) {
           {!confirming && (
             <button
               onClick={prepare}
-              disabled={busy || soldOut || !onChain}
+              disabled={busy || !canMint}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition select-none disabled:opacity-50 ${
-                soldOut || !onChain ? 'bg-white/5 text-white/30' : 'bg-[#00ff88] text-black'
+                canMint ? 'bg-[#00ff88] text-black' : 'bg-white/5 text-white/30'
               }`}
             >
-              {!onChain ? 'Not on-chain' : soldOut ? 'Sold out' : wallet ? 'Mint' : 'Connect'}
+              {!onChain
+                ? 'Not on-chain'
+                : soldOut
+                  ? 'Sold out'
+                  : saleClosed
+                    ? 'Sale closed'
+                    : wallet
+                      ? 'Mint'
+                      : 'Connect'}
             </button>
           )}
         </div>
       </div>
+
+      {onChain && !canMint && (
+        <p className="text-[10px] text-white/35">
+          {soldOut
+            ? 'Every edition is with a collector now. Tap Trade to buy one of theirs.'
+            : 'The creator has no sale order open right now. Tap Trade to buy or sell with holders.'}
+        </p>
+      )}
 
       {mintedEdition && !confirming && (
         <NftMintShare collection={{ ...collection, minted_count: minted }} edition={mintedEdition} />

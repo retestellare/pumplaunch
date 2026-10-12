@@ -74,20 +74,35 @@ function balanceOf(account, assetCode, issuer) {
   return line ? parseFloat(line.balance) || 0 : 0;
 }
 
-// The creator's sell offer IS the primary market, so what it still holds is the
-// number of unminted editions.
+// The creator's sell offer IS the primary market, but it is not the whole story:
+// editions leave their wallet through it and the offer then closes once the drop
+// is done. So the network's own balances decide what is left — what the creator
+// still holds, free or escrowed in their own sale offers, is what can still be
+// minted, and anything already out of their hands has been bought. A record that
+// says "live" therefore cannot make a finished drop look available.
 export async function fetchCollectionState(collection) {
   if (!isOnChain(collection)) return null;
   const total = Math.max(1, collection.total_supply || 1);
-  const orders = await fetchOpenOrders(collection.creator, collection.asset_code, collection.issuer_public_key);
-  const sale = orders.find((o) => o.side === 'sell') || null;
+  const [account, orders] = await Promise.all([
+    loadAccount(collection.creator),
+    fetchOpenOrders(collection.creator, collection.asset_code, collection.issuer_public_key).catch(() => []),
+  ]);
+  // An unreadable creator account is unknown, never "sold out".
+  if (!account) return null;
 
-  if (!sale) {
-    return { minted: Math.min(total, collection.minted_count || 0), remaining: 0, soldOut: false, onSale: false };
-  }
+  const sales = orders.filter((o) => o.side === 'sell' && o.amount > 0);
+  const free = Math.max(0, balanceOf(account, collection.asset_code, collection.issuer_public_key));
+  const held = Math.min(total, free + sales.reduce((sum, o) => sum + o.amount, 0));
+  const minted = Math.min(total, Math.max(collection.minted_count || 0, total - held));
+  const sale = sales[0] || null;
 
-  const remaining = Math.max(0, Math.min(total, sale.amount));
-  return { minted: total - remaining, remaining, soldOut: remaining <= 0, onSale: true, offerId: sale.offerId };
+  return {
+    minted,
+    remaining: sale ? Math.max(0, Math.min(total, sale.amount)) : 0,
+    soldOut: minted >= total,
+    onSale: !!sale,
+    offerId: sale?.offerId,
+  };
 }
 
 // Each step is guarded by what the network already shows, so re-running a

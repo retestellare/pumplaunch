@@ -9,20 +9,25 @@ import { PANEL_IMAGE } from '@/lib/brandAssets';
 
 export default function NftDropList() {
   const [collections, setCollections] = useState(null);
+  const [saleStates, setSaleStates] = useState({});
 
   const load = useCallback(async () => {
     const list = await base44.entities.NftCollection.list('-created_date', 100);
     setCollections(list);
 
-    // On-chain collections report their real progress: the sale offer holds what
-    // is left, so the bars can never drift from the network.
+    // On-chain collections report their real progress from the network, so the
+    // bars and the mint buttons can never drift from what is really left.
     const chain = list.filter(isOnChain);
     if (chain.length === 0) return;
-    const states = await mapLimit(chain, 4, (c) => fetchCollectionState(c));
+    const results = await mapLimit(chain, 4, (c) => fetchCollectionState(c).catch(() => null));
+    const byId = {};
+    chain.forEach((c, i) => {
+      byId[c.id] = results[i];
+    });
+    setSaleStates(byId);
     setCollections((prev) =>
       prev.map((c) => {
-        const i = chain.findIndex((x) => x.id === c.id);
-        const state = i === -1 ? null : states[i];
+        const state = byId[c.id];
         if (!state) return c;
         const minted = Math.min(c.total_supply || 1, Math.max(c.minted_count || 0, state.minted));
         return {
@@ -75,7 +80,7 @@ export default function NftDropList() {
   return (
     <div className="px-3 pt-3.5 space-y-3">
       {sorted.map((c) => (
-        <NftCard key={c.id} collection={c} onMinted={update} />
+        <NftCard key={c.id} collection={c} state={saleStates[c.id]} onMinted={update} />
       ))}
     </div>
   );

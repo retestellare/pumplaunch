@@ -91,8 +91,8 @@ export default function NftBuyForm({ collection, market, onDone, onTraded }) {
         <label className="text-xs text-white/40 mb-1.5 block">Editions to buy</label>
         <input
           type="number"
-          min="0.01"
-          step="0.01"
+          min="1"
+          step="1"
           value={count}
           onChange={(e) => {
             setCount(e.target.value);

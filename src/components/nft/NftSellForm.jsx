@@ -18,7 +18,10 @@ function Row({ label, value }) {
 // Prices span nine orders of magnitude, so the default is written out in full
 // instead of JavaScript's exponential form.
 function plainPrice(n) {
-  return Number(n).toFixed(7).replace(/0+$/, '').replace(/\.$/, '');
+  // Floored, not rounded: a price taken from the best bid has to reach that bid.
+  // Rounding up would leave the offer sitting a hair above it, waiting forever.
+  const v = Math.floor((Number(n) || 0) * 1e7) / 1e7;
+  return v.toFixed(7).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 export default function NftSellForm({ collection, market, onDone }) {
@@ -129,8 +132,8 @@ export default function NftSellForm({ collection, market, onDone }) {
           <label className="text-xs text-white/40 mb-1.5 block">Editions</label>
           <input
             type="number"
-            min="0.01"
-            step="0.01"
+            min="1"
+            step="1"
             value={count}
             onChange={(e) => setCount(e.target.value)}
             disabled={busy || held === 0}
