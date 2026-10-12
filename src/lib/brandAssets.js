@@ -4,3 +4,7 @@ export const HERO_IMAGE =
 
 export const PANEL_IMAGE =
   'https://media.base44.com/images/public/6aa9bbacb0994d71286ed596/f8fc9a58a_generated_bc6e23df.jpg';
+
+// The mascot that rides beside the wordmark.
+export const MASCOT_IMAGE =
+  'https://media.base44.com/images/public/6aa9bbacb0994d71286ed596/580c5587f_generated_image.png';

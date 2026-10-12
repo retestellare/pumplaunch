@@ -14,12 +14,12 @@ import { byLiquidityGrowth } from '@/lib/liquidity';
 import { mapLimit } from '@/lib/concurrency';
 import PullToRefresh from '@/components/PullToRefresh';
 import NftDropList from '@/components/nft/NftDropList';
-import { HERO_IMAGE } from '@/lib/brandAssets';
+import { HERO_IMAGE, MASCOT_IMAGE } from '@/lib/brandAssets';
 import MarketTicker from '@/components/ticker/MarketTicker';
 
 const MODES = [
-  { key: 'coins', label: 'Memecoins' },
-  { key: 'nft', label: 'NFT Drops' },
+  { key: 'coins', label: '🐸 Memecoins' },
+  { key: 'nft', label: '🖼️ NFT Drops' },
 ];
 
 const TABS = [
@@ -103,9 +103,19 @@ export default function Home() {
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(8,11,10,.55),#080B0A_96%)]" />
         <div className="relative px-3.5 pt-[calc(0.875rem+env(safe-area-inset-top))] pb-4">
           <div className="flex items-center justify-between gap-2 animate-[sp-up_.6s_ease-out_both]">
-            <span className="font-black text-[18px] tracking-[-.02em] uppercase text-[#00F59B] [text-shadow:0_0_12px_rgba(0,245,155,.6)]">
-              Stellar Pump
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <Image
+                src={MASCOT_IMAGE}
+                alt=""
+                fittingType="fill"
+                className="w-[26px] h-[26px] rounded-full border border-[#00F59B]/45 shadow-[0_0_12px_rgba(0,245,155,.5)] shrink-0"
+              />
+              {/* The wallet balances want this space too: on the narrowest
+                  screens the mascot carries the brand on its own. */}
+              <span className="hidden min-[390px]:inline font-display text-[15px] tracking-[.01em] uppercase text-[#00F59B] [text-shadow:0_0_12px_rgba(0,245,155,.6)] truncate">
+                Stellar Pump
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <Link
                 to="/guide"

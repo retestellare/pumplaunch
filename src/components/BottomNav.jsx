@@ -1,11 +1,11 @@
-import { Home as HomeIcon, Wallet, MessageCircle, Rocket } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
+// Meme-flavoured tabs: a home, a chat bubble, a rocket and a money bag.
 const ITEMS = [
-  { path: '/', label: 'Home', icon: HomeIcon },
-  { path: '/social', label: 'Social', icon: MessageCircle },
-  { path: '/launch', label: 'Launch', icon: Rocket },
-  { path: '/portfolio', label: 'Wallet', icon: Wallet },
+  { path: '/', label: 'Home', glyph: '🏠' },
+  { path: '/social', label: 'Social', glyph: '💬' },
+  { path: '/launch', label: 'Launch', glyph: '🚀' },
+  { path: '/portfolio', label: 'Wallet', glyph: '💰' },
 ];
 
 export default function BottomNav() {
@@ -13,7 +13,7 @@ export default function BottomNav() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#080B0A] border-t border-[#00F59B]/25 max-w-lg mx-auto select-none pb-[env(safe-area-inset-bottom)]">
       <div className="flex">
-        {ITEMS.map(({ path, label, icon: Icon }) => {
+        {ITEMS.map(({ path, label, glyph }) => {
           // The NFT collection screen lives under the Launch tab, and an asset's
           // own screen under Wallet.
           const active =
@@ -30,7 +30,14 @@ export default function BottomNav() {
                   : 'text-[#F2F7F4]/40 hover:text-[#F2F7F4]'
               }`}
             >
-              <Icon size={20} />
+              <span
+                aria-hidden
+                className={`text-[20px] leading-none transition duration-200 ${
+                  active ? '' : 'grayscale opacity-60'
+                }`}
+              >
+                {glyph}
+              </span>
               <span>{label}</span>
             </Link>
           );
