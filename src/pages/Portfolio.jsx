@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { loadAccount, parseBalances } from '@/lib/stellar';
 import { loadAssetData } from '@/lib/assetData';
+import { fetchTokenCosts, portfolioPnl } from '@/lib/positions';
 import { mapLimit } from '@/lib/concurrency';
 import { resolveProfile, shortAddr } from '@/lib/profiles';
 import PageLayout from '@/components/PageLayout';
@@ -21,6 +22,12 @@ const TABS = [
   { value: 'activity', label: 'Activity' },
   { value: 'messages', label: 'Messages' },
 ];
+
+function fmtXlm(n) {
+  const v = parseFloat(n) || 0;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}K XLM`;
+  return `${v.toLocaleString(undefined, { maximumFractionDigits: 4 })} XLM`;
+}
 
 function timeAgo(date) {
   if (!date) return '';
@@ -47,6 +54,7 @@ export default function Portfolio() {
   const [launches, setLaunches] = useState([]);
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [costs, setCosts] = useState({});
 
   // Load balances + profile
   useEffect(() => {
@@ -73,6 +81,24 @@ export default function Portfolio() {
         if (active) setLoading(false);
       }
     })();
+    return () => {
+      active = false;
+    };
+  }, [wallet?.address]);
+
+  // What each token cost this wallet, read once from the app's own trade log, so
+  // every row can show the gain or loss sitting behind its balance.
+  useEffect(() => {
+    if (!wallet?.address) {
+      setCosts({});
+      return;
+    }
+    let active = true;
+    fetchTokenCosts(wallet.address)
+      .then((fetched) => {
+        if (active) setCosts(fetched);
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
@@ -135,6 +161,7 @@ export default function Portfolio() {
           ...a,
           symbol: appToken?.symbol || a.code,
           name: appToken?.name || appNft?.name || data?.meta?.name || a.code,
+          token_id: appToken?.id || null,
           image_url: appToken?.image_url || appNft?.media_url || data?.meta?.logo || null,
           domain:
             appToken?.custom_domain ||
@@ -281,6 +308,13 @@ export default function Portfolio() {
     })),
   ].sort((a, b) => new Date(b.time) - new Date(a.time));
 
+  // Gains and losses across every asset bought on-chain, net of what has already
+  // been sold back out of it.
+  const portfolio = portfolioPnl(
+    enrichedAssets.length > 0 ? enrichedAssets : balances?.assets,
+    costs
+  );
+
   return (
     <PageLayout title="Wallet" rightAction={<WalletButton />}>
       {/* Profile header card */}
@@ -330,6 +364,20 @@ export default function Portfolio() {
               {balances.availableXlm.toFixed(2)} XLM available
             </div>
           )}
+          {portfolio && (
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+              <span className="text-xs text-white/40">Tokens</span>
+              <span
+                className={`text-xs font-bold ${
+                  portfolio.pnl >= 0 ? 'text-[#00ff88]' : 'text-[#ff3b5c]'
+                }`}
+              >
+                {portfolio.pnl >= 0 ? '+' : '−'}
+                {fmtXlm(Math.abs(portfolio.pnl))} · {portfolio.pct >= 0 ? '↑' : '↓'}
+                {Math.abs(portfolio.pct).toFixed(1)}%
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -361,7 +409,11 @@ export default function Portfolio() {
               <p className="text-sm text-white/30">No trustline assets yet.</p>
             ) : (
               (enrichedAssets.length > 0 ? enrichedAssets : balances.assets).map((a) => (
-                <WalletAssetRow key={`${a.code}:${a.issuer}`} asset={a} />
+                <WalletAssetRow
+                  key={`${a.code}:${a.issuer}`}
+                  asset={a}
+                  cost={costs[a.token_id]}
+                />
               ))
             )}
           </>
