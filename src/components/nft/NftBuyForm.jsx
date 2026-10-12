@@ -4,6 +4,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { buyEditions, estimateBuy, estimateNftCost } from '@/lib/nftMarket';
 import { quoteOf } from '@/lib/pools';
 import { fmtAmount, toNumber } from '@/lib/tradeQuote';
+import { AlertTriangle } from 'lucide-react';
+import { mintProgress } from '@/lib/nft';
 
 function Row({ label, value }) {
   return (
@@ -31,6 +33,16 @@ export default function NftBuyForm({ collection, market, onDone, onTraded }) {
   const needed = quote === 'usdc' ? est.cost : est.cost + cost.feeXlm + cost.reserveXlm;
   const xlmNeeded = cost.feeXlm + cost.reserveXlm;
   const fundsOk = payBalance >= needed && market.availableXlm >= xlmNeeded;
+  // The creator sells at the pre-sale price; editions above it belong to other
+  // holders, who name their own price on the DEX. Said out loud before anyone
+  // signs for a price the original mint never had.
+  const presale = collection.mint_price || 0;
+  const paying = est.filled > 0 ? est.avgPrice : market.floor;
+  const overPresale = presale > 0 && paying > presale;
+  // Once the creator's drop is gone every listing belongs to a holder, so the
+  // market is secondary whether or not the pre-sale price is on record.
+  const { soldOut } = mintProgress(collection);
+  const resale = overPresale || (soldOut && market.floor > 0);
 
   const start = () => {
     if (!wallet) {
@@ -128,6 +140,28 @@ export default function NftBuyForm({ collection, market, onDone, onTraded }) {
         Editions are bought from whoever listed them — the creator's remaining drop or another
         holder. The seller is paid directly by the Stellar DEX.
       </p>
+
+      {resale && (
+        <div className="rounded-xl p-3 space-y-1 border border-[#ffb020]/30 bg-[#ffb020]/10">
+          <p className="text-[11px] font-bold text-[#ffb020] flex items-center gap-1.5">
+            <AlertTriangle size={13} /> Priced by another holder
+          </p>
+          {overPresale ? (
+            <p className="text-[10px] text-[#F2F7F4]/60 leading-relaxed">
+              These editions are resold by a holder, not sold by the creator, so this asking price is
+              the seller's own and can sit far above the original mint. The pre-sale price was{' '}
+              {fmtAmount(presale, 6)} {label} per edition, while you would pay{' '}
+              {fmtAmount(paying, 6)} {label} each — check that before you sign.
+            </p>
+          ) : (
+            <p className="text-[10px] text-[#F2F7F4]/60 leading-relaxed">
+              The pre-sale is over, so these editions are resold by other holders at their own asking
+              price. It can differ from the price the creator first minted at, so check it before you
+              sign.
+            </p>
+          )}
+        </div>
+      )}
 
       {!confirming ? (
         <button
