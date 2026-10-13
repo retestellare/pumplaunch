@@ -8,7 +8,13 @@ import { fetchTraderBoard } from '@/lib/leaderboard';
 import { badgesFor } from '@/lib/badges';
 import Avatar from '@/components/Avatar';
 import TraderBadges from '@/components/TraderBadges';
-import PostCard from '@/components/PostCard';
+import ProfileXLink from '@/components/profile/ProfileXLink';
+import ProfileStats from '@/components/profile/ProfileStats';
+import ProfileActivity from '@/components/profile/ProfileActivity';
+
+// Every count is one number the server returns, so the page never loads a
+// collection just to say how big it is.
+const EMPTY_COUNTS = { posts: 0, tokens: 0, invites: 0, trades: 0 };
 
 export default function Profile() {
   const { walletAddress } = useParams();
@@ -16,6 +22,7 @@ export default function Profile() {
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
   const [profileMap, setProfileMap] = useState({});
+  const [counts, setCounts] = useState(EMPTY_COUNTS);
   const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,17 +30,32 @@ export default function Profile() {
     let active = true;
     (async () => {
       setLoading(true);
+      setCounts(EMPTY_COUNTS);
+      setPosts([]);
       const p = await resolveProfile(walletAddress);
       if (!active) return;
       setProfile(p);
+
       try {
-        const list = await base44.entities.Post.filter({ author: walletAddress }, '-created_date', 50);
+        const [postList, postCount, tokenCount, inviteCount, tradeCount, map] = await Promise.all([
+          base44.entities.Post.filter({ author: walletAddress }, '-created_date', 50),
+          base44.entities.Post.count({ author: walletAddress }),
+          base44.entities.Token.count({ creator: walletAddress }),
+          base44.entities.Referral.count({ referrer_wallet: walletAddress }),
+          base44.entities.Trade.count({ user_address: walletAddress }),
+          resolveProfiles([walletAddress]),
+        ]);
         if (!active) return;
-        setPosts(list || []);
-        const map = await resolveProfiles([walletAddress]);
-        if (active) setProfileMap(map);
+        setPosts(postList || []);
+        setCounts({
+          posts: postCount || 0,
+          tokens: tokenCount || 0,
+          invites: inviteCount || 0,
+          trades: tradeCount || 0,
+        });
+        setProfileMap(map);
       } catch {
-        /* ignore */
+        /* the profile card still renders without the lists */
       }
       if (active) setLoading(false);
       // Badges are read off the trader board, which is far slower to build than
@@ -81,24 +103,19 @@ export default function Profile() {
               {profile?.bio && (
                 <p className="text-sm text-white/60 mt-3 whitespace-pre-wrap">{profile.bio}</p>
               )}
+              <ProfileXLink handle={profile?.x_handle} />
               {!profile?.bio && !profile?.display_name && (
                 <p className="text-sm text-white/40 mt-3">No profile set up yet.</p>
               )}
-              <div className="mt-3 text-xs text-white/40">
-                {posts.length} {posts.length === 1 ? 'post' : 'posts'}
-              </div>
+              <ProfileStats counts={counts} />
             </div>
 
-            <div>
-              <h3 className="font-bold mb-2 px-1">Posts</h3>
-              {posts.length === 0 ? (
-                <p className="text-sm text-white/30 px-1 py-6 text-center">No posts yet.</p>
-              ) : (
-                posts.map((p) => (
-                  <PostCard key={p.id} post={p} profileMap={profileMap} onChange={() => {}} />
-                ))
-              )}
-            </div>
+            <ProfileActivity
+              walletAddress={walletAddress}
+              posts={posts}
+              profileMap={profileMap}
+              counts={counts}
+            />
           </>
         )}
       </main>
