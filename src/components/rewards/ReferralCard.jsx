@@ -9,7 +9,7 @@ function fmtXlm(value) {
 }
 
 // A member's own invite: the link, a copy action and the card it shares.
-export default function ReferralCard({ wallet, count, rewardXlm }) {
+export default function ReferralCard({ wallet, count, qualified, rewardXlm }) {
   const [copied, setCopied] = useState(false);
   const link = referralLink(wallet);
   const payload = {
@@ -33,8 +33,11 @@ export default function ReferralCard({ wallet, count, rewardXlm }) {
       <div>
         <h3 className="text-sm font-bold">Your referral link</h3>
         <p className="text-[10px] text-[#F2F7F4]/40 mt-0.5">
-          {referralCountLabel(count || 0)} so far — a new member who connects through this link is
-          credited to you.
+          {referralCountLabel(count || 0)} so far — {qualified || 0} qualified.
+        </p>
+        <p className="text-[10px] text-[#F2F7F4]/40 mt-1">
+          Each invited member earns you {fmtXlm(rewardXlm)} XLM once they set up a profile with a name
+          and photo, launch a token and post a callout.
         </p>
       </div>
 

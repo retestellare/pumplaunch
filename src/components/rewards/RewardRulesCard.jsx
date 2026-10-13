@@ -1,4 +1,5 @@
 import { REWARD_TYPES, rewardFor } from '@/lib/rewards';
+import { REFERRAL_REQUIREMENT } from '@/lib/referralEligibility';
 
 function fmtXlm(value) {
   const v = parseFloat(value) || 0;
@@ -27,14 +28,19 @@ export default function RewardRulesCard({ rules }) {
 
       <div className="space-y-2.5">
         {REWARD_TYPES.map((type) => (
-          <div key={type.key} className="flex items-center gap-3">
-            <span aria-hidden className="text-[16px] leading-none">
-              {type.glyph}
-            </span>
-            <span className="flex-1 text-xs text-[#F2F7F4]/70">{type.label}</span>
-            <span className="font-mono text-xs font-bold text-[#00F59B]">
-              {fmtXlm(rewardFor(rules, type.key))} XLM
-            </span>
+          <div key={type.key} className="space-y-1">
+            <div className="flex items-center gap-3">
+              <span aria-hidden className="text-[16px] leading-none">
+                {type.glyph}
+              </span>
+              <span className="flex-1 text-xs text-[#F2F7F4]/70">{type.label}</span>
+              <span className="font-mono text-xs font-bold text-[#00F59B]">
+                {fmtXlm(rewardFor(rules, type.key))} XLM
+              </span>
+            </div>
+            {type.key === 'referral' && (
+              <p className="pl-7 text-[10px] text-[#F2F7F4]/40">{REFERRAL_REQUIREMENT}</p>
+            )}
           </div>
         ))}
       </div>

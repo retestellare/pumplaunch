@@ -11,6 +11,10 @@
     "source": {
       "type": "string",
       "default": "link"
+    },
+    "verified": {
+      "type": "boolean",
+      "default": false
     }
   },
   "required": [

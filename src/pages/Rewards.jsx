@@ -9,9 +9,18 @@ import ReferralCard from '@/components/rewards/ReferralCard';
 import RewardProgress from '@/components/rewards/RewardProgress';
 import ClaimPanel from '@/components/rewards/ClaimPanel';
 import ClaimHistory from '@/components/rewards/ClaimHistory';
+import ReferralQualification from '@/components/rewards/ReferralQualification';
 import { loadClaims, loadProgress, loadRules, reviewerAccess } from '@/lib/rewards';
+import { syncReferralCredit } from '@/lib/referrals';
 
-const EMPTY = { rows: {}, total: 0, claimable: 0, claimableCount: 0, referrals: 0 };
+const EMPTY = {
+  rows: {},
+  total: 0,
+  claimable: 0,
+  claimableCount: 0,
+  referrals: 0,
+  qualified: 0,
+};
 
 function Spinner() {
   return (
@@ -30,6 +39,7 @@ export default function Rewards() {
   const [progress, setProgress] = useState(EMPTY);
   const [claims, setClaims] = useState([]);
   const [canReview, setCanReview] = useState(false);
+  const [invite, setInvite] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (address) => {
@@ -40,17 +50,22 @@ export default function Rewards() {
       setProgress(EMPTY);
       setClaims([]);
       setCanReview(false);
+      setInvite(null);
       setLoading(false);
       return;
     }
-    const [progressState, claimList, access] = await Promise.all([
+    // syncReferralCredit clears any invitation of this wallet that has just
+    // qualified, and reports the invitation's state back.
+    const [progressState, claimList, access, inviteState] = await Promise.all([
       loadProgress(address),
       loadClaims(address),
       reviewerAccess(address),
+      syncReferralCredit(address),
     ]);
     setProgress(progressState);
     setClaims(claimList || []);
     setCanReview(access.allowed);
+    setInvite(inviteState);
     setLoading(false);
   }, []);
 
@@ -93,9 +108,13 @@ export default function Rewards() {
           </div>
         ) : (
           <>
+            {invite?.invited && (
+              <ReferralQualification state={invite.state} verified={invite.verified} />
+            )}
             <ReferralCard
               wallet={wallet.address}
               count={progress.referrals}
+              qualified={progress.qualified}
               rewardXlm={rules.referral_xlm}
             />
             <RewardProgress progress={progress} rules={rules} />

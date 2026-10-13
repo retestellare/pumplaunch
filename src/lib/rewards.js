@@ -11,7 +11,7 @@ export const DEFAULT_RULES = {
   is_active: true,
   admin_wallets: [],
   rules_note:
-    'Earn XLM for inviting a new member, launching a token or collection, and posting a callout in the social feed. Every action is credited once per wallet, and a claim is reviewed by hand before payout.',
+    'Earn XLM for inviting a new member, launching a token or collection, and posting a callout in the social feed. Every action is credited once per wallet, and a claim is reviewed by hand before payout. An invitation counts once the invited member sets up a profile with a name and photo, launches a token and posts a callout.',
 };
 
 export const REWARD_TYPES = [
@@ -75,10 +75,10 @@ export async function recordReward({ wallet, type, ref, label }) {
 // Totals come from the server: one grouped call for the progress rows, one for
 // what is still claimable, one count for the referrals themselves.
 export async function loadProgress(wallet) {
-  const empty = { rows: {}, total: 0, claimable: 0, claimableCount: 0, referrals: 0 };
+  const empty = { rows: {}, total: 0, claimable: 0, claimableCount: 0, referrals: 0, qualified: 0 };
   if (!wallet) return empty;
 
-  const [byType, claimable, referrals] = await Promise.all([
+  const [byType, claimable, referrals, qualified] = await Promise.all([
     base44.entities.RewardEvent.aggregate({
       query: { wallet_address: wallet },
       groupBy: 'type',
@@ -89,6 +89,9 @@ export async function loadProgress(wallet) {
       sum: 'xlm',
     }),
     base44.entities.Referral.count({ referrer_wallet: wallet }),
+    // Invitations whose member has qualified, so a joined link can be told apart
+    // from one that actually earns.
+    base44.entities.Referral.count({ referrer_wallet: wallet, verified: true }),
   ]);
 
   const rows = {};
@@ -102,6 +105,7 @@ export async function loadProgress(wallet) {
     rows,
     total,
     referrals: referrals || 0,
+    qualified: qualified || 0,
     claimable: pending.sum_xlm || 0,
     claimableCount: pending.count || 0,
   };
