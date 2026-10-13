@@ -6,7 +6,7 @@ import WalletButton from '@/components/WalletButton';
 import { Image } from '@/components/ui/image';
 import { useWallet } from '@/lib/wallet';
 import { Link } from 'react-router-dom';
-import { HelpCircle } from 'lucide-react';
+import { Gift, HelpCircle } from 'lucide-react';
 import NewHoldersToday from '@/components/NewHoldersToday';
 import Leaderboard from '@/components/Leaderboard';
 import { fetchTokenMarket } from '@/lib/market';
@@ -117,6 +117,13 @@ export default function Home() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <Link
+                to="/rewards"
+                aria-label="Rewards"
+                className="w-[34px] h-[34px] rounded-[10px] bg-[#16211E] border border-[#00F59B]/25 text-[#00F59B] flex items-center justify-center transition duration-200 hover:bg-[#1d2d29] hover:shadow-[0_0_10px_rgba(0,245,155,.4)] active:bg-[#0e1614] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+              >
+                <Gift size={18} />
+              </Link>
               <Link
                 to="/guide"
                 aria-label="Guide"

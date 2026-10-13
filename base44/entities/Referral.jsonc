@@ -1,0 +1,20 @@
+{
+  "name": "Referral",
+  "type": "object",
+  "properties": {
+    "referrer_wallet": {
+      "type": "string"
+    },
+    "referred_wallet": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "default": "link"
+    }
+  },
+  "required": [
+    "referrer_wallet",
+    "referred_wallet"
+  ]
+}

@@ -3,35 +3,10 @@
 // shapes and the logo all follow the token, so no two cards look alike.
 // The PNG is uploaded once to public storage and remembered on the token.
 import { base44 } from '@/api/base44Client';
-
-const W = 1200;
-const H = 630;
-const PAD = 72;
-const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+import { FONT, H, PAD, W, hashString, loadBitmap, mulberry32, roundRect, wrapText } from '@/lib/canvasKit';
 
 const cache = new Map(); // token id -> { url, file, blob }
 const inflight = new Map(); // token id -> promise
-
-function hashString(value) {
-  let h = 2166136261;
-  const s = String(value || '');
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function fmtPrice(value) {
   const v = parseFloat(value);
@@ -46,59 +21,6 @@ function fmtAmount(value) {
   if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return v.toFixed(2);
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function wrapText(ctx, text, maxWidth, maxLines) {
-  const words = String(text || '').split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = '';
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(candidate).width > maxWidth) {
-      lines.push(line);
-      line = word;
-      if (lines.length === maxLines) break;
-    } else {
-      line = candidate;
-    }
-  }
-  if (lines.length < maxLines && line) lines.push(line);
-  if (lines.length === maxLines && line && lines[maxLines - 1] !== line) {
-    let last = lines[maxLines - 1];
-    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
-    lines[maxLines - 1] = `${last}…`;
-  }
-  return lines;
-}
-
-// Logos live on public storage; fetching them into a blob keeps the canvas
-// untainted. If the fetch is blocked we fall back to a monogram.
-async function loadBitmap(url) {
-  if (!url) return null;
-  try {
-    const res = await fetch(url, { mode: 'cors' });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (typeof createImageBitmap === 'function') return await createImageBitmap(blob);
-    return await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = URL.createObjectURL(blob);
-    });
-  } catch {
-    return null;
-  }
 }
 
 function drawLogo(ctx, x, y, size, bitmap, symbol, hue, second) {

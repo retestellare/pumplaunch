@@ -1,0 +1,55 @@
+{
+  "name": "RewardClaim",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "amount_xlm": {
+      "type": "number",
+      "default": 0
+    },
+    "event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "event_count": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "paid"
+      ],
+      "default": "pending"
+    },
+    "payout_address": {
+      "type": "string"
+    },
+    "reviewer_wallet": {
+      "type": "string"
+    },
+    "reviewed_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "review_note": {
+      "type": "string"
+    },
+    "paid_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "wallet_address",
+    "amount_xlm"
+  ]
+}

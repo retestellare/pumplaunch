@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
+import { recordReward } from '@/lib/rewards';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
@@ -138,6 +139,16 @@ export default function LaunchNft() {
         eventName: 'nft_collection_launched',
         properties: { symbol: collection.symbol, edition_type: editionType, supply },
       });
+
+      // A collection is a launched asset too, so it earns the launch reward once.
+      if (wallet?.address && collection?.id) {
+        recordReward({
+          wallet: wallet.address,
+          type: 'token_launch',
+          ref: collection.id,
+          label: `$${collection.symbol} collection`,
+        }).catch(() => {});
+      }
       setLaunched(saved || { ...collection, ...chain });
       setPhase('success');
     } catch (e) {

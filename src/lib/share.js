@@ -15,6 +15,12 @@ export function tokenShareUrl(token) {
   return absoluteUrl(`/token/${token?.id ?? ''}`);
 }
 
+// The rewards page doubles as the referral landing: the inviter's wallet rides
+// in the query so the invited member is credited to them.
+export function rewardsRefUrl(wallet) {
+  return absoluteUrl(`/rewards${wallet ? `?ref=${wallet}` : ''}`);
+}
+
 function fmtPrice(price) {
   const p = parseFloat(price);
   if (!p || p <= 0 || isNaN(p)) return null;

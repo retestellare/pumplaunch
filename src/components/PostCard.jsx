@@ -6,6 +6,7 @@ import { Heart, MessageCircle } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 import ShareButton from '@/components/ShareButton';
 import { postShare } from '@/lib/share';
+import { postCardFile } from '@/lib/shareCard';
 import { shortAddr, displayName } from '@/lib/profiles';
 import PostActions from '@/components/social/PostActions';
 
@@ -125,6 +126,12 @@ export default function PostCard({ post: sourcePost, onChange, profileMap = {} }
         <ShareButton
           variant="flat"
           className="ml-auto"
+          prepare={() =>
+            postCardFile(post, {
+              author: post.author,
+              handle: displayName(profileMap[post.author], post.author),
+            })
+          }
           payload={postShare({ post, author: displayName(profileMap[post.author], post.author) })}
         />
       </div>

@@ -1,0 +1,42 @@
+{
+  "name": "RewardSettings",
+  "type": "object",
+  "properties": {
+    "referral_xlm": {
+      "type": "number",
+      "default": 5
+    },
+    "launch_xlm": {
+      "type": "number",
+      "default": 20
+    },
+    "social_xlm": {
+      "type": "number",
+      "default": 2
+    },
+    "min_claim_xlm": {
+      "type": "number",
+      "default": 25
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "admin_wallets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "rules_note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "referral_xlm",
+    "launch_xlm",
+    "social_xlm",
+    "min_claim_xlm"
+  ]
+}

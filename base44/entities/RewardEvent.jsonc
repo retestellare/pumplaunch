@@ -1,0 +1,44 @@
+{
+  "name": "RewardEvent",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "referral",
+        "token_launch",
+        "social_post"
+      ]
+    },
+    "ref": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "xlm": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "credited",
+        "claimed",
+        "paid"
+      ],
+      "default": "credited"
+    },
+    "claim_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "wallet_address",
+    "type",
+    "ref"
+  ]
+}

@@ -15,6 +15,9 @@ import WalletAsset from '@/pages/WalletAsset';
 import TokenHolders from '@/pages/TokenHolders';
 import Guide from '@/pages/Guide';
 import Profile from '@/pages/Profile';
+import Rewards from '@/pages/Rewards';
+import RewardsAdmin from '@/pages/RewardsAdmin';
+import RewardTracker from '@/components/RewardTracker';
 
 // Detail pages slide in from the side you travelled from.
 const slide = {
@@ -46,6 +49,8 @@ function AppRoutes() {
             <Route path="/asset/:code/:issuer" element={<WalletAsset />} />
             <Route path="/guide" element={<Guide />} />
             <Route path="/profile/:walletAddress" element={<Profile />} />
+            <Route path="/rewards" element={<Rewards />} />
+            <Route path="/rewards-admin" element={<RewardsAdmin />} />
             <Route path="*" element={<PageNotFound />} />
           </Routes>
         </motion.div>
@@ -63,6 +68,8 @@ function App() {
         <Router>
           <ScrollToTop />
           <WalletProvider>
+            {/* Credits an incoming referral link to the inviter's wallet. */}
+            <RewardTracker />
             <AppRoutes />
           </WalletProvider>
         </Router>

@@ -8,13 +8,23 @@ const VARIANTS = {
   ghost: 'bg-white/5 text-white font-bold',
 };
 
-export default function ShareButton({ payload, imageFile, label = 'Share', variant = 'solid', className = '' }) {
+export default function ShareButton({
+  payload,
+  imageFile,
+  prepare,
+  label = 'Share',
+  variant = 'solid',
+  className = '',
+}) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
 
   const handleShare = async () => {
     setBusy(true);
-    await sharePayload({ ...payload, imageFile, toast });
+    // `prepare` builds the artwork for this share only, so a card is never
+    // rendered for a button nobody pressed.
+    const file = prepare ? await prepare() : imageFile;
+    await sharePayload({ ...payload, imageFile: file, toast });
     setBusy(false);
   };
 
