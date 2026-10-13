@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { fetchLeaderboard } from '@/lib/leaderboard';
 import { resolveProfiles, displayName, shortAddr } from '@/lib/profiles';
+import { BADGES, BADGE_ORDER, computeBadges } from '@/lib/badges';
 import Avatar from '@/components/Avatar';
+import TraderBadges from '@/components/TraderBadges';
 
 function formatPct(pct) {
   if (pct == null || isNaN(pct)) return '—';
@@ -52,6 +54,7 @@ export default function Leaderboard({ tokens, walletAddress }) {
   const myRank = walletAddress ? rows.findIndex((r) => r.address === walletAddress) : -1;
   const myRow = myRank >= 0 ? rows[myRank] : null;
   const top = rows.slice(0, 50);
+  const badges = useMemo(() => computeBadges(rows), [rows]);
 
   const renderRow = (r, i, isMe) => {
     const profile = profiles[r.address];
@@ -74,6 +77,7 @@ export default function Leaderboard({ tokens, walletAddress }) {
         <span className="flex-1 text-[12px] font-semibold text-[#F2F7F4]/85 truncate">
           {profile?.display_name ? name : shortAddr(r.address)}
         </span>
+        <TraderBadges keys={badges[r.address]} />
         <div className="text-right shrink-0">
           <div className={`text-[12px] font-extrabold ${pctPositive ? 'text-[#00F59B]' : 'text-[#ff4d6d]'}`}>
             {formatPct(r.gainPct)}
@@ -93,6 +97,17 @@ export default function Leaderboard({ tokens, walletAddress }) {
         <p className="text-[10px] text-[#F2F7F4]/40 mt-0.5 tracking-[.03em]">
           Ranked by return % on XLM actually spent
         </p>
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1.5">
+          {BADGE_ORDER.map((key) => (
+            <span
+              key={key}
+              title={BADGES[key].hint}
+              className="text-[10px] text-[#F2F7F4]/35 tracking-[.03em]"
+            >
+              {BADGES[key].glyph} {BADGES[key].label}
+            </span>
+          ))}
+        </div>
       </div>
       <div className="px-2.5 pb-3">
         {loading ? (

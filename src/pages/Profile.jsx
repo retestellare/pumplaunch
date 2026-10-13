@@ -4,7 +4,10 @@ import { ChevronLeft } from 'lucide-react';
 import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
 import { resolveProfile, resolveProfiles, shortAddr } from '@/lib/profiles';
+import { fetchTraderBoard } from '@/lib/leaderboard';
+import { badgesFor } from '@/lib/badges';
 import Avatar from '@/components/Avatar';
+import TraderBadges from '@/components/TraderBadges';
 import PostCard from '@/components/PostCard';
 
 export default function Profile() {
@@ -13,6 +16,7 @@ export default function Profile() {
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
   const [profileMap, setProfileMap] = useState({});
+  const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,6 +36,14 @@ export default function Profile() {
         /* ignore */
       }
       if (active) setLoading(false);
+      // Badges are read off the trader board, which is far slower to build than
+      // the profile itself, so they land on their own instead of holding the page.
+      try {
+        const board = await fetchTraderBoard();
+        if (active) setBadges(badgesFor(board, walletAddress));
+      } catch {
+        /* no board, no badges */
+      }
     })();
     return () => {
       active = false;
@@ -61,6 +73,11 @@ export default function Profile() {
                 {profile?.display_name || shortAddr(walletAddress)}
               </h2>
               <p className="text-xs text-white/30 font-mono mt-1">{shortAddr(walletAddress)}</p>
+              {badges.length > 0 && (
+                <div className="mt-2.5">
+                  <TraderBadges keys={badges} labelled />
+                </div>
+              )}
               {profile?.bio && (
                 <p className="text-sm text-white/60 mt-3 whitespace-pre-wrap">{profile.bio}</p>
               )}

@@ -1,3 +1,4 @@
+import { base44 } from '@/api/base44Client';
 import { mapLimit } from '@/lib/concurrency';
 import { fetchXlmUsdcRate } from '@/lib/stellar';
 import { tokenPools, toXlm, USDC_CODE, USDC_ISSUER } from '@/lib/pools';
@@ -84,7 +85,28 @@ function sides(tr) {
 // are its sells, with USDC converted so one ranking covers both markets. Wallets
 // that only ever sold (creators seeding liquidity) have no cost basis and are
 // left out.
+// Building the board costs two Horizon calls per token, and two screens want it —
+// the home board and a profile's badges — so a finished board is held briefly
+// rather than rebuilt for each of them.
+const BOARD_TTL_MS = 3 * 60 * 1000;
+let boardCache = { key: '', at: 0, rows: null };
+
+function boardKey(tokens) {
+  return (tokens || []).map((t) => `${t.id || t.asset_code || ''}:${t.issuer || ''}`).join(',');
+}
+
+// The board for a screen with no token list of its own.
+export async function fetchTraderBoard() {
+  const tokens = await base44.entities.Token.list('-created_date', 100);
+  return fetchLeaderboard(tokens);
+}
+
 export async function fetchLeaderboard(tokens) {
+  const key = boardKey(tokens);
+  if (boardCache.rows && boardCache.key === key && Date.now() - boardCache.at < BOARD_TTL_MS) {
+    return boardCache.rows;
+  }
+
   const xlmPerUsdc = await fetchXlmUsdcRate();
   const wallets = {};
   const ensure = (addr) => {
@@ -118,6 +140,7 @@ export async function fetchLeaderboard(tokens) {
       a.address.localeCompare(b.address)
   );
 
+  boardCache = { key, at: Date.now(), rows };
   return rows;
 }
 
