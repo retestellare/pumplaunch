@@ -51,6 +51,8 @@ import {
   getIssuerSecret,
 } from '@/lib/launchAttempts';
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
+import FreeLaunchPromo from '@/components/launch/FreeLaunchPromo';
+import { FREE_LAUNCH, freeLaunchStatus, fundFreeLaunch } from '@/lib/freeLaunch';
 import { ImagePlus } from 'lucide-react';
 
 const DISTRIBUTION_OPTIONS = [
@@ -138,6 +140,10 @@ export default function LaunchToken() {
   const [stalledAttempt, setStalledAttempt] = useState(null);
   const [stallLoading, setStallLoading] = useState(true);
   const [attemptRefreshKey, setAttemptRefreshKey] = useState(0);
+  // The free-launch promo: whether this wallet may still use it, and whether the
+  // launch being set up runs on it.
+  const [promo, setPromo] = useState(null);
+  const [promoMode, setPromoMode] = useState(false);
 
   useEffect(() => {
     if (!wallet?.address) {
@@ -176,6 +182,26 @@ export default function LaunchToken() {
       const rate = await fetchXlmUsdcRate();
       if (active) setXlmPerUsdc(rate);
     })();
+    return () => {
+      active = false;
+    };
+  }, [wallet?.address, attemptRefreshKey]);
+
+  // The promo is offered until the wallet has launched a token from it.
+  useEffect(() => {
+    if (!wallet?.address) {
+      setPromo(null);
+      setPromoMode(false);
+      return;
+    }
+    let active = true;
+    freeLaunchStatus(wallet.address)
+      .then((status) => {
+        if (active) setPromo(status);
+      })
+      .catch(() => {
+        if (active) setPromo(null);
+      });
     return () => {
       active = false;
     };
@@ -230,8 +256,9 @@ export default function LaunchToken() {
         toast({ title: 'Still reading the XLM/USDC rate', description: 'Give it a moment and try again.', variant: 'destructive' });
         return false;
       }
-      if (!il || il < 10) {
-        toast({ title: `Initial Liquidity must be at least 10 ${inputUnit} for Auto-Pool`, variant: 'destructive' });
+      const minLiquidity = promoMode ? FREE_LAUNCH.liquidity : 10;
+      if (!il || il < minLiquidity) {
+        toast({ title: `Initial Liquidity must be at least ${minLiquidity} ${inputUnit} for Auto-Pool`, variant: 'destructive' });
         return false;
       }
     } else if (initialLiquidity && (!il || il < 10)) {
@@ -281,6 +308,26 @@ export default function LaunchToken() {
 
     try {
       if (!wallet?.address) throw new Error('Wallet not connected.');
+
+      // A free launch is paid for from the promo wallet, so the XLM has to land
+      // before the issuer account can be created. A retry only asks again while
+      // the wallet is still short of the launch's spendable XLM.
+      if (store.free_launch) {
+        const before = await loadAccount(wallet.address);
+        if (!before || parseBalances(before).availableXlm < FREE_LAUNCH.requiredXlm) {
+          setStage('issuer', 'Sending your free-launch XLM…');
+          const funding = await fundFreeLaunch(wallet.address);
+          if (funding?.error) throw new Error(funding.error);
+          const required = funding?.required_xlm || FREE_LAUNCH.requiredXlm;
+          let ready = false;
+          for (let i = 0; i < 8 && !ready; i++) {
+            if (i > 0) await new Promise((r) => setTimeout(r, 2000));
+            const acct = await loadAccount(wallet.address);
+            ready = !!acct && parseBalances(acct).availableXlm >= required;
+          }
+          if (!ready) throw new Error('The free-launch XLM has not arrived yet. Try again in a moment.');
+        }
+      }
 
       if (!store.image_url && imageFile) {
         setStage('issuer', 'Uploading logo…');
@@ -711,6 +758,7 @@ export default function LaunchToken() {
       initial_liquidity: initialLiquidity,
       curve,
       pool_type: effectivePoolType,
+      free_launch: promoMode,
       image_url: null,
       token_id: null,
       issuer_public_key: null,
@@ -751,6 +799,23 @@ export default function LaunchToken() {
     toast({ title: 'Incomplete launch discarded', description: 'The 2 XLM issuer reserve cannot be recovered.' });
   };
 
+  const startFreeLaunch = () => {
+    setPromoMode(true);
+    setAutoPool(true);
+    setPoolType('xlm');
+    setLiquidity(100);
+    setInitialLiquidity(String(FREE_LAUNCH.liquidity));
+    toast({
+      title: 'Free launch applied',
+      description: `${FREE_LAUNCH.liquidity} XLM liquidity in one XLM pool — we send your wallet the XLM.`,
+    });
+  };
+
+  const stopFreeLaunch = () => {
+    setPromoMode(false);
+    setInitialLiquidity('');
+  };
+
   const curvePreset = CURVE_PRESETS[curve];
   // Only an Auto-Pool launch seeds the chosen pool pair; a bonding-curve launch
   // always seeds one XLM pool.
@@ -779,7 +844,8 @@ export default function LaunchToken() {
   const requiredXlm = cost.issuerReserveXlm + (parseFloat(plan.deposits.xlm) || 0) + swapXlm + cost.feeXlm + cost.reserveXlm;
   // A split launch buys its USDC with XLM, so the wallet never needs USDC.
   const requiredUsdc = swapXlm > 0 ? 0 : parseFloat(plan.deposits.usdc) || 0;
-  const xlmOk = availableXlm === null || availableXlm >= requiredXlm;
+  // The promo sends the launch's XLM, so the wallet's own balance never blocks it.
+  const xlmOk = promoMode || availableXlm === null || availableXlm >= requiredXlm;
   const usdcOk = !needsUsdc || availableUsdc === null || availableUsdc >= requiredUsdc;
   const balanceOk = xlmOk && usdcOk;
   const blocked = !!stalledAttempt && !stallLoading;
@@ -828,6 +894,8 @@ export default function LaunchToken() {
               <p className="text-xs text-white/50">You have an unfinished launch above. Resume or discard it before starting a new one.</p>
             </div>
           )}
+
+          <FreeLaunchPromo status={promo} active={promoMode} onStart={startFreeLaunch} onStop={stopFreeLaunch} />
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
             <div>
@@ -940,11 +1008,13 @@ export default function LaunchToken() {
                 value={initialLiquidity}
                 onChange={(e) => setInitialLiquidity(e.target.value)}
                 placeholder={autoPool ? `Min 10 ${inputUnit}` : 'Optional (min 10 XLM)'}
-                disabled={blocked}
+                disabled={blocked || promoMode}
                 className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
               />
               <p className="text-[10px] text-white/30 mt-1">
-                Minimum 10 {inputUnit}. Recommended 50+ for lower initial price slippage.
+                {promoMode
+                  ? `Fixed at ${FREE_LAUNCH.liquidity} ${inputUnit} by the free launch.`
+                  : `Minimum 10 ${inputUnit}. Recommended 50+ for lower initial price slippage.`}
               </p>
               {autoPool && effectivePoolType === 'split' && (
                 <p className="text-[10px] text-white/30 mt-1">
@@ -974,7 +1044,7 @@ export default function LaunchToken() {
                   setLiquidity(opt.value);
                 }
               }}
-              disabled={blocked}
+              disabled={blocked || promoMode}
             />
 
             {autoPool && (
@@ -987,7 +1057,7 @@ export default function LaunchToken() {
                 needsUsdc={needsUsdc}
                 rateReady={rateReady}
                 usdcTrustline={usdcTrustline}
-                disabled={blocked}
+                disabled={blocked || promoMode}
               />
             )}
 
@@ -1073,6 +1143,7 @@ export default function LaunchToken() {
               <Row label="Asset" value={form.symbol.toUpperCase()} />
               <Row label="Issuer" value="Auto-generated · Locked" />
               <Row label="Home Domain" value={effectiveDomain} />
+              {promoMode && <Row label="Free Launch" value="Funded by Stellar Pump" />}
               <Row label="Total Supply" value={(autoPool ? Math.floor(derivedSupply) : parseFloat(form.supply)).toLocaleString()} />
               <Row
                 label="Launch Type"
