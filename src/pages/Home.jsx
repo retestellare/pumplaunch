@@ -16,6 +16,7 @@ import PullToRefresh from '@/components/PullToRefresh';
 import NftDropList from '@/components/nft/NftDropList';
 import { HERO_IMAGE, MASCOT_IMAGE } from '@/lib/brandAssets';
 import MarketTicker from '@/components/ticker/MarketTicker';
+import FlashNews from '@/components/FlashNews';
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
@@ -135,6 +136,7 @@ export default function Home() {
             </div>
           </div>
           <div className="mt-[54px] animate-[sp-up_.6s_.08s_ease-out_both]">
+            <FlashNews tokens={allTokens} />
             <MarketTicker tokens={allTokens} />
           </div>
           <div className="mt-2.5 animate-[sp-up_.6s_.1s_ease-out_both]">

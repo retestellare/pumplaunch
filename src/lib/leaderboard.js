@@ -81,17 +81,13 @@ function sides(tr) {
   return null;
 }
 
-// Return % on the XLM a wallet actually spent: cost basis is its buys, proceeds
-// are its sells, with USDC converted so one ranking covers both markets. Wallets
-// that only ever sold (creators seeding liquidity) have no cost basis and are
-// left out.
 // Building the board costs two Horizon calls per token, and two screens want it —
 // the home board and a profile's badges — so a finished board is held briefly
 // rather than rebuilt for each of them.
 const BOARD_TTL_MS = 3 * 60 * 1000;
 let boardCache = { key: '', at: 0, rows: null };
 
-function boardKey(tokens) {
+function tokenKey(tokens) {
   return (tokens || []).map((t) => `${t.id || t.asset_code || ''}:${t.issuer || ''}`).join(',');
 }
 
@@ -101,8 +97,12 @@ export async function fetchTraderBoard() {
   return fetchLeaderboard(tokens);
 }
 
+// Return % on the XLM a wallet actually spent: cost basis is its buys, proceeds
+// are its sells, with USDC converted so one ranking covers both markets. Wallets
+// that only ever sold (creators seeding liquidity) have no cost basis and are
+// left out.
 export async function fetchLeaderboard(tokens) {
-  const key = boardKey(tokens);
+  const key = tokenKey(tokens);
   if (boardCache.rows && boardCache.key === key && Date.now() - boardCache.at < BOARD_TTL_MS) {
     return boardCache.rows;
   }
@@ -144,7 +144,7 @@ export async function fetchLeaderboard(tokens) {
   return rows;
 }
 
-export async function fetchNewHolders(tokens) {
+async function buildNewHolders(tokens) {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
   // Issuers and creators are not "new holders" — they are the supply side.
   const excluded = new Set(tokens.flatMap((t) => [t.creator, t.issuer]).filter(Boolean));
@@ -174,4 +174,35 @@ export async function fetchNewHolders(tokens) {
   return Object.values(byAddr)
     .sort((a, b) => new Date(b.time) - new Date(a.time))
     .slice(0, 20);
+}
+
+// The holders card and the flash line both want this sweep on the same screen, so
+// a finished sweep — and one already in flight — is shared rather than repeated.
+const HOLDERS_TTL_MS = 3 * 60 * 1000;
+let holdersCache = { key: '', at: 0, rows: null };
+let holdersPending = { key: '', promise: null };
+
+export function fetchNewHolders(tokens) {
+  const key = tokenKey(tokens);
+  if (holdersCache.rows && holdersCache.key === key && Date.now() - holdersCache.at < HOLDERS_TTL_MS) {
+    return Promise.resolve(holdersCache.rows);
+  }
+  if (holdersPending.promise && holdersPending.key === key) return holdersPending.promise;
+
+  const clearPending = () => {
+    if (holdersPending.key === key) holdersPending = { key: '', promise: null };
+  };
+  const promise = buildNewHolders(tokens)
+    .then((rows) => {
+      holdersCache = { key, at: Date.now(), rows };
+      clearPending();
+      return rows;
+    })
+    .catch((error) => {
+      clearPending();
+      throw error;
+    });
+
+  holdersPending = { key, promise };
+  return promise;
 }
