@@ -79,3 +79,26 @@ desc="Welcome to the Matrix of crypto and NFTs. TRINITY isn't just a token, it's
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/806dffbdb_32133.jpg"
 display_decimals=0
 fixed_number=10
+
+[[CURRENCIES]]
+code="ORGON"
+issuer="GD7G7INE22VQKMUQ4HMXZA7IJGST6AVZXZSWRLVUB3HNQKMPNGEL4I4R"
+name="Orgon Energy DAO"
+desc="⚡ ORGON Token ($ORGON) ​Vision and Concept ​ORGON is a next-generation utility token inspired by the concept of universal life energy (orgone energy). The project aims to create a decentralized ecosystem capable of converting activity, community participation, and digital interaction into tangible value, just like a primordial energy accumulator."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/2708f2cd0_32302.jpg"
+
+[[CURRENCIES]]
+code="AGRAS"
+issuer="GCBYTF2VJ45AX7SUAQGBFKOHDR3Z5LAZ4D2E4NQTWKYF7MROIL257RET"
+name="$AGGRASS"
+desc="$AGGRASS COIN: The Cultural Meme Token That Tells the Truth! Pay with Gas (GWEI), Make Money with Weed! 🚐💸🌱 No One Rides For Free. ​#AGGRASSCOIN #MemeToken #CryptoMeme #VanLife #CryptoCulture #NoOneRidesForFree"
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/f0de411bd_32174.jpg"
+
+[[CURRENCIES]]
+code="ORACOLO"
+issuer="GAYFDYXDBNAY6RNIPNUSYTXVCLTMCPXYXZ5H2USYBA2BRC3DGVIPX7YN"
+name="Matrix"
+desc="\"Decode the future of crypto with the ultimate Oracle. Guided by Doge and powered by Stellar ($XLM),$ORACLE brings green candle prophecies straight to the Matrix resistance. Much vision, wow prediction!\""
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/23f72d6fd_32198.jpg"
+display_decimals=0
+fixed_number=10
