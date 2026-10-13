@@ -12,6 +12,7 @@ import WalletButton from '@/components/WalletButton';
 import Avatar from '@/components/Avatar';
 import ProfileEditor from '@/components/ProfileEditor';
 import WalletAssetRow from '@/components/wallet/WalletAssetRow';
+import AssetManagerEntry from '@/components/wallet/AssetManagerEntry';
 import { Pencil } from 'lucide-react';
 
 // How many assets are priced at once: fast enough to feel live, gentle on Horizon.
@@ -401,6 +402,7 @@ export default function Portfolio() {
       <div className="p-4">
         {tab === 'assets' && (
           <>
+            <AssetManagerEntry address={wallet.address} />
             {loading ? (
               <div className="flex justify-center py-8">
                 <div className="w-6 h-6 border-2 border-white/10 border-t-[#00ff88] rounded-full animate-spin" />

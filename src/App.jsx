@@ -15,6 +15,8 @@ import WalletAsset from '@/pages/WalletAsset';
 import TokenHolders from '@/pages/TokenHolders';
 import Guide from '@/pages/Guide';
 import Profile from '@/pages/Profile';
+import AssetManager from '@/pages/AssetManager';
+import ManageAsset from '@/pages/ManageAsset';
 import Rewards from '@/pages/Rewards';
 import RewardsAdmin from '@/pages/RewardsAdmin';
 import RewardTracker from '@/components/RewardTracker';
@@ -49,6 +51,8 @@ function AppRoutes() {
             <Route path="/asset/:code/:issuer" element={<WalletAsset />} />
             <Route path="/guide" element={<Guide />} />
             <Route path="/profile/:walletAddress" element={<Profile />} />
+            <Route path="/manage" element={<AssetManager />} />
+            <Route path="/manage/:kind/:id" element={<ManageAsset />} />
             <Route path="/rewards" element={<Rewards />} />
             <Route path="/rewards-admin" element={<RewardsAdmin />} />
             <Route path="*" element={<PageNotFound />} />
