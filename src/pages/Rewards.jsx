@@ -12,6 +12,7 @@ import ClaimHistory from '@/components/rewards/ClaimHistory';
 import ReferralQualification from '@/components/rewards/ReferralQualification';
 import { loadClaims, loadProgress, loadRules, reviewerAccess } from '@/lib/rewards';
 import { syncReferralCredit } from '@/lib/referrals';
+import { resolveProfile } from '@/lib/profiles';
 
 const EMPTY = {
   rows: {},
@@ -40,6 +41,7 @@ export default function Rewards() {
   const [claims, setClaims] = useState([]);
   const [canReview, setCanReview] = useState(false);
   const [invite, setInvite] = useState(null);
+  const [xConnected, setXConnected] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (address) => {
@@ -51,21 +53,24 @@ export default function Rewards() {
       setClaims([]);
       setCanReview(false);
       setInvite(null);
+      setXConnected(false);
       setLoading(false);
       return;
     }
     // syncReferralCredit clears any invitation of this wallet that has just
     // qualified, and reports the invitation's state back.
-    const [progressState, claimList, access, inviteState] = await Promise.all([
+    const [progressState, claimList, access, inviteState, profile] = await Promise.all([
       loadProgress(address),
       loadClaims(address),
       reviewerAccess(address),
       syncReferralCredit(address),
+      resolveProfile(address),
     ]);
     setProgress(progressState);
     setClaims(claimList || []);
     setCanReview(access.allowed);
     setInvite(inviteState);
+    setXConnected(!!profile?.x_handle);
     setLoading(false);
   }, []);
 
@@ -123,6 +128,7 @@ export default function Rewards() {
               progress={progress}
               rules={rules}
               pending={pending}
+              xConnected={xConnected}
               onSubmitted={() => load(wallet.address)}
             />
             <ClaimHistory claims={claims} />

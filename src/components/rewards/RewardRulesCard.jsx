@@ -1,5 +1,6 @@
 import { REWARD_TYPES, rewardFor } from '@/lib/rewards';
 import { REFERRAL_REQUIREMENT } from '@/lib/referralEligibility';
+import { X_REQUIREMENT } from '@/lib/xAccount';
 
 function fmtXlm(value) {
   const v = parseFloat(value) || 0;
@@ -51,6 +52,7 @@ export default function RewardRulesCard({ rules }) {
           <span className="font-bold text-[#00F59B]">{fmtXlm(rules.min_claim_xlm)} XLM</span> — each
           action is credited once per wallet.
         </p>
+        <p className="text-[11px] font-bold text-[#00F59B]/80 pt-1">{X_REQUIREMENT}</p>
         {rules.rules_note && <p className="text-[10px] text-[#F2F7F4]/40">{rules.rules_note}</p>}
       </div>
     </div>

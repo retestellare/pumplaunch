@@ -3,8 +3,8 @@ import { CheckCircle2, Circle } from 'lucide-react';
 import { REFERRAL_CHECKS } from '@/lib/referralEligibility';
 
 // Shown to a member who arrived through someone else's invite link: their
-// inviter's reward is credited only once all three are done, which is what keeps
-// throwaway wallets out of the program.
+// inviter's reward is credited only once all of them are done, which is what
+// keeps throwaway wallets out of the program.
 export default function ReferralQualification({ state, verified }) {
   return (
     <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
@@ -12,8 +12,8 @@ export default function ReferralQualification({ state, verified }) {
         <h3 className="text-sm font-bold">{verified ? 'Invite complete' : 'Finish your invite'}</h3>
         <p className="text-[10px] text-[#F2F7F4]/40 mt-0.5">
           {verified
-            ? 'All three are done — your inviter has been credited.'
-            : 'You joined through an invite link. Your inviter is paid the reward once these three are done.'}
+            ? 'All done — your inviter has been credited.'
+            : 'You joined through an invite link. Your inviter is paid the reward once these are done.'}
         </p>
       </div>
 

@@ -11,7 +11,7 @@ export const DEFAULT_RULES = {
   is_active: true,
   admin_wallets: [],
   rules_note:
-    'Earn XLM for inviting a new member, launching a token or collection, and posting a callout in the social feed. Every action is credited once per wallet, and a claim is reviewed by hand before payout. An invitation counts once the invited member sets up a profile with a name and photo, launches a token and posts a callout.',
+    'Earn XLM for inviting a new member, launching a token or collection, and posting a callout in the social feed. Every action is credited once per wallet, and a claim is reviewed by hand before payout. An invitation counts once the invited member sets up a profile with a name and photo, connects an X account, launches a token and posts a callout. A connected X account on your own profile is required to receive a payout.',
 };
 
 export const REWARD_TYPES = [
@@ -144,6 +144,13 @@ export async function submitClaim(wallet) {
   if (amount <= 0) throw new Error('Nothing to claim yet — earn a reward first.');
   const min = parseFloat(rules.min_claim_xlm) || 0;
   if (amount < min) throw new Error(`Claims start at ${min} XLM — you have ${amount.toFixed(2)} XLM so far.`);
+
+  // The payout requirement: a claim only leaves a profile that names the X
+  // account the reviewer checks before paying.
+  const profiles = await base44.entities.Profile.filter({ wallet_address: wallet }, '-created_date', 1);
+  if (!profiles?.[0]?.x_handle) {
+    throw new Error('Connect your X account to your profile before claiming rewards.');
+  }
 
   const claim = await base44.entities.RewardClaim.create({
     wallet_address: wallet,

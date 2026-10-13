@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveProfile } from '@/lib/profiles';
+import { isXHandle, normalizeXHandle } from '@/lib/xAccount';
 import { X, ImagePlus, Loader2 } from 'lucide-react';
 import DeleteAccountPanel from '@/components/DeleteAccountPanel';
 
@@ -14,6 +15,7 @@ export default function ProfileEditor({ onDone }) {
   const [existing, setExisting] = useState(null);
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
+  const [xHandle, setXHandle] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -33,6 +35,7 @@ export default function ProfileEditor({ onDone }) {
         setExisting(p);
         setDisplayName(p.display_name || '');
         setBio(p.bio || '');
+        setXHandle(p.x_handle || '');
         setAvatarUrl(p.avatar_url || null);
       }
       setLoading(false);
@@ -62,6 +65,14 @@ export default function ProfileEditor({ onDone }) {
       toast({ title: 'Display name is required', variant: 'destructive' });
       return;
     }
+    if (xHandle.trim() && !isXHandle(xHandle)) {
+      toast({
+        title: 'That X handle looks off',
+        description: 'Letters, numbers and underscores only, up to 15 — without the @.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setSaving(true);
     try {
       let finalAvatarUrl = avatarUrl;
@@ -73,6 +84,7 @@ export default function ProfileEditor({ onDone }) {
         wallet_address: wallet.address,
         display_name: displayName.trim(),
         bio: bio.trim(),
+        x_handle: normalizeXHandle(xHandle),
         avatar_url: finalAvatarUrl,
       };
       if (existing) {
@@ -141,6 +153,21 @@ export default function ProfileEditor({ onDone }) {
               maxLength={30}
               className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40"
             />
+          </div>
+
+          <div>
+            <label className="text-xs text-white/40 mb-1.5 block">X Account</label>
+            <div className="flex items-center gap-1 bg-black/30 border border-white/5 rounded-xl px-3 focus-within:border-[#00ff88]/40">
+              <span className="text-sm text-white/30">@</span>
+              <input
+                value={xHandle}
+                onChange={(e) => setXHandle(e.target.value.replace(/^@+/, ''))}
+                placeholder="yourhandle"
+                maxLength={16}
+                className="flex-1 bg-transparent py-3 outline-none"
+              />
+            </div>
+            <p className="text-[10px] text-white/30 mt-1">Required to receive reward payouts.</p>
           </div>
 
           <div>

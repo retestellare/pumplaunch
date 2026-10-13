@@ -13,6 +13,9 @@
     },
     "avatar_url": {
       "type": "string"
+    },
+    "x_handle": {
+      "type": "string"
     }
   },
   "required": [

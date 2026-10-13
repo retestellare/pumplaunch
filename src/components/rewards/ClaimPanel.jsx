@@ -1,13 +1,15 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import { submitClaim } from '@/lib/rewards';
+import { X_REQUIREMENT } from '@/lib/xAccount';
 
 function fmtXlm(value) {
   return (parseFloat(value) || 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
 // Submitting freezes the credited rewards into a claim an admin reviews.
-export default function ClaimPanel({ wallet, progress, rules, pending, onSubmitted }) {
+export default function ClaimPanel({ wallet, progress, rules, pending, xConnected, onSubmitted }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const min = parseFloat(rules.min_claim_xlm) || 0;
@@ -58,6 +60,17 @@ export default function ClaimPanel({ wallet, progress, rules, pending, onSubmitt
             Submitted {new Date(pending.created_date).toLocaleDateString()}. You can claim again once
             this one is settled.
           </p>
+        </div>
+      ) : !xConnected ? (
+        <div className="bg-[#00F59B]/5 border border-[#00F59B]/25 rounded-xl p-3 space-y-2">
+          <p className="text-xs font-bold text-[#00F59B]">Connect your X account to claim</p>
+          <p className="text-[10px] text-[#F2F7F4]/50">{X_REQUIREMENT}</p>
+          <Link
+            to="/portfolio"
+            className="block text-center py-2.5 rounded-xl bg-[#00F59B] text-[#04100B] font-bold text-xs"
+          >
+            Connect X account
+          </Link>
         </div>
       ) : (
         <button

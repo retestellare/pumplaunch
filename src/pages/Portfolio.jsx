@@ -11,6 +11,7 @@ import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import Avatar from '@/components/Avatar';
 import ProfileEditor from '@/components/ProfileEditor';
+import XAccountRow from '@/components/XAccountRow';
 import WalletAssetRow from '@/components/wallet/WalletAssetRow';
 import AssetManagerEntry from '@/components/wallet/AssetManagerEntry';
 import { Pencil } from 'lucide-react';
@@ -341,6 +342,7 @@ export default function Portfolio() {
           {profile?.bio && (
             <p className="text-sm text-white/60 mt-3 whitespace-pre-wrap">{profile.bio}</p>
           )}
+          {profile && <XAccountRow handle={profile.x_handle} onConnect={() => setEditing(true)} />}
           {!profile && (
             <button
               onClick={() => setEditing(true)}
