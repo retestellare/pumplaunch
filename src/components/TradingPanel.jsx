@@ -5,6 +5,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   loadAccount,
   parseBalances,
+  fetchPathQuote,
   buildBuyTransaction,
   buildSellTransaction,
   buildLimitBuyTransaction,
@@ -40,6 +41,7 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
   const [triggerPrice, setTriggerPrice] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [lastTrade, setLastTrade] = useState(null);
+  const [pathOut, setPathOut] = useState(null);
 
   const isOnChain = !!(token.issuer && token.asset_code);
   const isAutoPool = !!token.is_auto_pool;
@@ -126,16 +128,57 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
   const balance = side === 'buy' ? payBalance : tokenBalance;
   const needsUsdcTrustline = payWith === 'usdc' && !usdcTrustline;
   const effectivePrice = mode === 'limit' ? triggerPrice : price;
-  // A limit order fills at the price it sets; a market order follows what the
-  // pool curve or the best offer actually returns for this size.
+  // A limit order fills at the price it sets; a market order follows what the pool
+  // curve and the offers sitting behind the best price actually return for this size.
   const fill = quoteTrade({
     side,
     amount,
     price: effectivePrice,
     route: mode === 'limit' ? null : route,
     pool: quoteMarket?.pool,
+    book: quoteMarket?.book,
   });
-  const estOut = fill.out;
+
+  // The figure a trader acts on should be what the network really pays, so a market
+  // order is priced by Horizon's own path finder: it walks the same order book and
+  // pools the payment will take. One source on its own misprices a large trade — the
+  // pool's curve ignores the offers behind it. It lands a moment after typing, and
+  // the curve above covers that gap.
+  useEffect(() => {
+    setPathOut(null);
+    if (mode !== 'market' || !isOnChain) return;
+    const amt = toNumber(amount);
+    if (!(amt > 0)) return;
+    let active = true;
+    const timer = setTimeout(async () => {
+      try {
+        const paid = payWith === 'usdc' ? 'usdc' : 'native';
+        const tokenAsset = { code: token.asset_code, issuer: token.issuer };
+        const value = await fetchPathQuote({
+          send: side === 'buy' ? paid : tokenAsset,
+          dest: side === 'buy' ? tokenAsset : paid,
+          amount: amt,
+        });
+        if (active) setPathOut(value);
+      } catch {
+        if (active) setPathOut(null);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [amount, side, payWith, mode, isOnChain, token?.asset_code, token?.issuer]);
+
+  // Horizon's answer wins whenever there is one, and the estimate, the fill rate and
+  // the slippage floor all read from that same figure.
+  const estOut = mode === 'market' && pathOut > 0 ? pathOut : fill.out;
+  const estRate =
+    estOut > 0 && fill.input > 0 ? (side === 'buy' ? fill.input / estOut : estOut / fill.input) : 0;
+  const estImpact =
+    estRate > 0 && fill.spot > 0 ? Math.abs((estRate - fill.spot) / fill.spot) * 100 : 0;
+  const effRoute = fill.route || route;
+  const summaryFill = { ...fill, out: estOut, fillPrice: estRate, impact: estImpact };
   // The trade's value in XLM, so a USDC market still reports one unit.
   const xlmValue = payWith === 'usdc' ? toXlm(side === 'buy' ? fill.input : estOut, payWith, xlmPerUsdc) : 0;
 
@@ -368,9 +411,9 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
             {xlmValue > 0 && ` · ≈ ${fmtAmount(xlmValue)} XLM`}
           </div>
           <div>
-            {fmtAmount(fill.fillPrice, 8)} {quote.label} per {token.symbol}
-            {route ? ` via ${ROUTE_LABEL[route]}` : ''}
-            {fill.impact >= 0.1 ? ` · spot ${fill.spot.toFixed(8)}` : ''}
+            {fmtAmount(summaryFill.fillPrice, 8)} {quote.label} per {token.symbol}
+            {effRoute ? ` via ${ROUTE_LABEL[effRoute]}` : ''}
+            {summaryFill.impact >= 0.1 ? ` · spot ${summaryFill.spot.toFixed(8)}` : ''}
           </div>
         </div>
       )}
@@ -392,8 +435,8 @@ export default function TradingPanel({ token, market, xlmPerUsdc = 0, onTrade })
           quote={quote}
           triggerPrice={triggerPrice}
           confirm={confirm}
-          fill={fill}
-          route={route}
+          fill={summaryFill}
+          route={effRoute}
           cost={cost}
         />
       )}

@@ -587,16 +587,20 @@ export async function fetchOrderBook(assetCode, issuer, quote = 'xlm') {
   const bestBid = bidPrices.length ? Math.max(...bidPrices) : 0;
   const bestAsk = askPrices.length ? Math.min(...askPrices) : 0;
 
-  // Every level keeps its own price and size, so a purchase can be costed across
-  // as many offers as it takes to fill instead of only the best one.
+  // Every level keeps its own price and size, so a trade can be costed across as
+  // many offers as it takes to fill instead of only the best one. Stellar reports
+  // a level's amount in the asset the offer sells — the token for an ask, the
+  // quote asset for a bid — so `tokens` states that same size in tokens either way.
   const askLevels = asks
     .map((row) => ({ price: priceOf(row), amount: parseFloat(row.amount) || 0 }))
     .filter((l) => l.price > 0 && l.amount > 0)
-    .sort((a, b) => a.price - b.price);
+    .sort((a, b) => a.price - b.price)
+    .map((l) => ({ ...l, tokens: l.amount }));
   const bidLevels = bids
     .map((row) => ({ price: priceOf(row), amount: parseFloat(row.amount) || 0 }))
     .filter((l) => l.price > 0 && l.amount > 0)
-    .sort((a, b) => b.price - a.price);
+    .sort((a, b) => b.price - a.price)
+    .map((l) => ({ ...l, tokens: l.amount / l.price }));
 
   return {
     bestBid,
@@ -612,6 +616,52 @@ export async function fetchOrderBook(assetCode, issuer, quote = 'xlm') {
     bidCount: bids.length,
     askCount: asks.length,
   };
+}
+
+const isNativeRef = (asset) => !asset || asset === 'native' || asset === 'xlm';
+
+function assetParamPair(prefix, asset) {
+  if (isNativeRef(asset)) return [`${prefix}_asset_type=native`];
+  if (asset === 'usdc') {
+    return [
+      `${prefix}_asset_type=credit_alphanum4`,
+      `${prefix}_asset_code=${USDC_CODE}`,
+      `${prefix}_asset_issuer=${USDC_ISSUER}`,
+    ];
+  }
+  const assetType = asset.code.length <= 4 ? 'credit_alphanum4' : 'credit_alphanum12';
+  return [
+    `${prefix}_asset_type=${assetType}`,
+    `${prefix}_asset_code=${asset.code}`,
+    `${prefix}_asset_issuer=${asset.issuer}`,
+  ];
+}
+
+function destinationAssetsParam(asset) {
+  if (isNativeRef(asset)) return 'native';
+  if (asset === 'usdc') return `${USDC_CODE}:${USDC_ISSUER}`;
+  return `${asset.code}:${asset.issuer}`;
+}
+
+// What the network would really pay for this size. Horizon's path finder walks the
+// order book and the pools exactly as the payment itself will, so its answer is the
+// trade's true value — the pool's curve alone, or the single best offer, is not.
+export async function fetchPathQuote({ send, dest, amount }) {
+  const amt = parseFloat(amount);
+  if (!(amt > 0) || !send || !dest) return null;
+  const params = [
+    ...assetParamPair('source', send),
+    `source_amount=${amt}`,
+    `destination_assets=${destinationAssetsParam(dest)}`,
+  ].join('&');
+
+  const data = await horizonJsonSafe(`/paths/strict-send?${params}`, 15000);
+  let best = 0;
+  for (const record of data?._embedded?.records || []) {
+    const value = parseFloat(record.destination_amount) || 0;
+    if (value > best) best = value;
+  }
+  return best || null;
 }
 
 export function keypairFromSecret(secret) {
