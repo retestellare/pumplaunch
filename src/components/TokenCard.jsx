@@ -7,7 +7,7 @@ import PoolBadge from './PoolBadge';
 const rowDelay = (i) => (i < 4 ? `${0.3 + i * 0.08}s` : '0s');
 const priceDelay = (i) => (i > 0 && i < 4 ? `${0.3 + i * 0.1}s` : '0s');
 
-export default function TokenCard({ token, rank, index = 0, isKing = false }) {
+export default function TokenCard({ token, rank, index = 0 }) {
   const change = token.liquidity_change_24h;
   const hasChange = change != null && !isNaN(change);
   const positive = (change ?? 0) >= 0;
@@ -28,15 +28,6 @@ export default function TokenCard({ token, rank, index = 0, isKing = false }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-extrabold text-[13px] tracking-[-.01em]">${token.symbol}</span>
-          {isKing && (
-            <span
-              title="King of the Hill"
-              aria-label="King of the Hill"
-              className="text-[12px] leading-none drop-shadow-[0_0_6px_rgba(255,209,102,.8)]"
-            >
-              👑
-            </span>
-          )}
           <PoolBadge token={token} />
           {token.is_graduated && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-[4px] bg-[#00F59B]/[0.14] text-[#00F59B] font-black tracking-[.05em] uppercase">
