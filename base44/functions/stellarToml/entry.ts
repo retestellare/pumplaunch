@@ -28,7 +28,7 @@ function esc(value) {
     .trim();
 }
 
-function currencyBlock({ code, issuer, name, description, image, fixedNumber }) {
+function currencyBlock({ code, issuer, name, description, image, fixedNumber, nft }) {
   const lines = ['[[CURRENCIES]]'];
   lines.push(`code="${esc(code)}"`);
   lines.push(`issuer="${esc(issuer)}"`);
@@ -39,6 +39,11 @@ function currencyBlock({ code, issuer, name, description, image, fixedNumber }) 
     // A sealed edition: whole units only, and the supply can never grow.
     lines.push('display_decimals=0');
     lines.push(`fixed_number=${fixedNumber}`);
+  }
+  if (nft) {
+    // SEP-1's marker for an NFT entry, so wallets and explorers file the
+    // collection as an NFT rather than a fungible token.
+    lines.push('anchor_asset_type="nft"');
   }
   return lines.join('\n');
 }
@@ -78,9 +83,12 @@ function buildToml(tokens, collections) {
   }
 
   for (const collection of collections) {
-    const code = collection.asset_code;
-    if (!code || !collection.issuer_public_key) continue;
-    const key = `${code}:${collection.issuer_public_key}`;
+    // A collection recorded under either spelling still lists — its ticker may
+    // sit in symbol and its issuing account in issuer — so no NFT is dropped.
+    const code = collection.asset_code || collection.symbol;
+    const issuer = collection.issuer_public_key || collection.issuer;
+    if (!code || !issuer) continue;
+    const key = `${code}:${issuer}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const editions =
@@ -88,11 +96,12 @@ function buildToml(tokens, collections) {
     blocks.push(
       currencyBlock({
         code,
-        issuer: collection.issuer_public_key,
+        issuer,
         name: collection.name || code,
         description: collection.description,
         image: collection.media_url,
         fixedNumber: editions,
+        nft: true,
       })
     );
   }
@@ -125,8 +134,7 @@ export default async function (req) {
         issuer: { $exists: true },
       }),
       loadAll(base44.asServiceRole, 'NftCollection', {
-        asset_code: { $exists: true },
-        issuer_public_key: { $exists: true },
+        $or: [{ issuer_public_key: { $exists: true } }, { issuer: { $exists: true } }],
       }),
     ]);
 

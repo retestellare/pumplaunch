@@ -28,8 +28,12 @@ export function assetCode(record) {
   return record?.asset_code || record?.symbol || '';
 }
 
+// Older records may carry the issuing account under the other spelling, so both
+// are read: a collection is never left out of the registry for it.
 export function assetIssuer(record, kind) {
-  return (kind === COLLECTION ? record?.issuer_public_key : record?.issuer) || '';
+  const primary = kind === COLLECTION ? record?.issuer_public_key : record?.issuer;
+  const other = kind === COLLECTION ? record?.issuer : record?.issuer_public_key;
+  return primary || other || '';
 }
 
 export function assetImage(record, kind) {
@@ -79,6 +83,7 @@ export function registryBlock(record, kind) {
     const editions = record?.edition_type === 'limited' ? Math.max(1, record?.total_supply || 1) : 1;
     lines.push('display_decimals=0');
     lines.push(`fixed_number=${editions}`);
+    lines.push('anchor_asset_type="nft"');
   }
   return lines.join('\n');
 }

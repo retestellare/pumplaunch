@@ -93,6 +93,7 @@ desc="\"Decode the future of crypto with the ultimate Oracle. Guided by Doge and
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/23f72d6fd_32198.jpg"
 display_decimals=0
 fixed_number=10
+anchor_asset_type="nft"
 
 [[CURRENCIES]]
 code="TRINITY"
@@ -102,3 +103,4 @@ desc="Welcome to the Matrix of crypto and NFTs. TRINITY isn't just a token, it's
 image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/806dffbdb_32133.jpg"
 display_decimals=0
 fixed_number=10
+anchor_asset_type="nft"
