@@ -1,0 +1,36 @@
+{
+  "name": "KothKing",
+  "type": "object",
+  "properties": {
+    "token_id": {
+      "type": "string"
+    },
+    "token_symbol": {
+      "type": "string"
+    },
+    "token_name": {
+      "type": "string"
+    },
+    "token_image": {
+      "type": "string"
+    },
+    "bid_xlm": {
+      "type": "number",
+      "default": 0
+    },
+    "challenger_wallet": {
+      "type": "string"
+    },
+    "reign_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tx_hash": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "token_symbol",
+    "bid_xlm"
+  ]
+}

@@ -17,6 +17,8 @@ import NftDropList from '@/components/nft/NftDropList';
 import { HERO_IMAGE, MASCOT_IMAGE } from '@/lib/brandAssets';
 import MarketTicker from '@/components/ticker/MarketTicker';
 import FlashNews from '@/components/FlashNews';
+import KingBanner from '@/components/koth/KingBanner';
+import ChallengeKingDialog from '@/components/koth/ChallengeKingDialog';
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
@@ -54,10 +56,16 @@ export default function Home() {
   const [allTokens, setAllTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
+  const [king, setKing] = useState(null);
+  const [challenging, setChallenging] = useState(false);
 
   const load = useCallback(async () => {
-    const list = await base44.entities.Token.list('-created_date', 100);
+    const [list, thrones] = await Promise.all([
+      base44.entities.Token.list('-created_date', 100),
+      base44.entities.KothKing.list('-created_date', 1),
+    ]);
     setAllTokens(list);
+    setKing(thrones[0] || null);
     setLoading(false);
 
     // Live figures stream in afterwards — the list never waits on Horizon.
@@ -93,6 +101,12 @@ export default function Home() {
     const fresh = list.filter((t) => createdTime(t) >= cutoff).sort((a, b) => createdTime(b) - createdTime(a));
     return fresh.length > 0 ? fresh : list.slice(0, 20);
   }, [tab, allTokens]);
+
+  // Only a launched token can hold the throne: the stake has to name a real asset.
+  const contenders = useMemo(
+    () => allTokens.filter((t) => t.issuer && t.asset_code),
+    [allTokens]
+  );
 
   return (
     <PageLayout bare>
@@ -175,6 +189,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      {mode === 'coins' && <KingBanner king={king} onChallenge={() => setChallenging(true)} />}
       {mode === 'nft' ? (
         <NftDropList />
       ) : loading ? (
@@ -186,7 +201,13 @@ export default function Home() {
       ) : (
         <div className="border-t border-[#16211E]">
           {tokens.map((t, i) => (
-            <TokenCard key={t.id} token={t} index={i} rank={enriching ? null : i + 1} />
+            <TokenCard
+              key={t.id}
+              token={t}
+              index={i}
+              rank={enriching ? null : i + 1}
+              isKing={king?.token_id === t.id}
+            />
           ))}
         </div>
       )}
@@ -196,6 +217,13 @@ export default function Home() {
           <Leaderboard tokens={allTokens} walletAddress={wallet?.address} />
         </div>
       )}
+      <ChallengeKingDialog
+        open={challenging}
+        onOpenChange={setChallenging}
+        tokens={contenders}
+        king={king}
+        onSettled={load}
+      />
     </PageLayout>
   );
 }
