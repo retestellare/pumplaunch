@@ -1,4 +1,6 @@
 {
+  "name": "User",
+  "type": "object",
   "properties": {
     "role": {
       "type": "string",
@@ -7,11 +9,14 @@
         "admin",
         "user"
       ]
+    },
+    "push_notifications": {
+      "type": "boolean",
+      "description": "Whether this user receives push notifications on their phone",
+      "default": true
     }
   },
   "required": [
     "role"
-  ],
-  "name": "User",
-  "type": "object"
+  ]
 }

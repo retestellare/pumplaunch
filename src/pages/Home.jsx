@@ -19,7 +19,6 @@ import MarketTicker from '@/components/ticker/MarketTicker';
 import FlashNews from '@/components/FlashNews';
 import SettingsMenu from '@/components/settings/SettingsMenu';
 import HeaderAvatar from '@/components/settings/HeaderAvatar';
-import NotificationBell from '@/components/notifications/NotificationBell';
 import { resolveProfile } from '@/lib/profiles';
 
 const MODES = [
@@ -136,7 +135,6 @@ export default function Home() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <NotificationBell />
               <Link
                 to="/rewards"
                 aria-label="Rewards"

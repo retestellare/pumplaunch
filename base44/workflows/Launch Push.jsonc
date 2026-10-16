@@ -1,0 +1,43 @@
+{
+  "name": "Launch Push",
+  "description": "Pushes a phone notification to app users when a new token launches",
+  "trigger": {
+    "config": {
+      "trigger_type": "entity",
+      "entity_name": "Token",
+      "events": [
+        "create"
+      ]
+    },
+    "condition": "${ .trigger.data.symbol != null }"
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "launch_push",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "push_launch": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "pushNotify",
+            "args": {
+              "title": "\ud83d\ude80 New launch on PumpLaunch",
+              "content": "${ .trigger.data.symbol } just launched \u2014 tap to trade",
+              "action_label": "Trade",
+              "action_url": "https://pumplaunch.app/token/${ .trigger.entity_id }"
+            }
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Push the launch alert",
+            "description": "Phone notification to app users"
+          }
+        }
+      }
+    ]
+  }
+}
