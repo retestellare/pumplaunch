@@ -1,29 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { User, Wallet, Gift } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import SettingsRow from '@/components/settings/SettingsRow';
+import NotificationToggle from '@/components/settings/NotificationToggle';
 import ProfileEditor from '@/components/ProfileEditor';
 import Avatar from '@/components/Avatar';
 import { useWallet } from '@/lib/wallet';
-import { resolveProfile, shortAddr } from '@/lib/profiles';
+import { shortAddr } from '@/lib/profiles';
 
 // The account menu behind the avatar in the home header: who you are, and the
 // settings that belong to this wallet.
-export default function SettingsMenu({ open, onOpenChange }) {
+export default function SettingsMenu({ open, onOpenChange, profile, onProfileSaved }) {
   const { wallet } = useWallet();
-  const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
-
-  useEffect(() => {
-    if (!open || !wallet?.address) return undefined;
-    let active = true;
-    resolveProfile(wallet.address).then((p) => {
-      if (active) setProfile(p);
-    });
-    return () => {
-      active = false;
-    };
-  }, [open, wallet?.address]);
 
   const close = () => onOpenChange(false);
   const openProfile = () => {
@@ -76,6 +65,7 @@ export default function SettingsMenu({ open, onOpenChange }) {
                 to="/rewards"
                 onClick={close}
               />
+              <NotificationToggle />
             </div>
           </div>
         </SheetContent>
@@ -83,7 +73,12 @@ export default function SettingsMenu({ open, onOpenChange }) {
 
       {editing && (
         <div className="fixed inset-0 z-[60] bg-[#0a0b0d] max-w-lg mx-auto overflow-y-auto">
-          <ProfileEditor onDone={() => setEditing(false)} />
+          <ProfileEditor
+            onDone={() => {
+              setEditing(false);
+              onProfileSaved?.();
+            }}
+          />
         </div>
       )}
     </>

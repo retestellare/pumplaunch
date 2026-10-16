@@ -14,10 +14,13 @@ import { byLiquidityGrowth } from '@/lib/liquidity';
 import { mapLimit } from '@/lib/concurrency';
 import PullToRefresh from '@/components/PullToRefresh';
 import NftDropList from '@/components/nft/NftDropList';
-import { HERO_IMAGE, MASCOT_IMAGE } from '@/lib/brandAssets';
+import { HERO_IMAGE } from '@/lib/brandAssets';
 import MarketTicker from '@/components/ticker/MarketTicker';
 import FlashNews from '@/components/FlashNews';
 import SettingsMenu from '@/components/settings/SettingsMenu';
+import HeaderAvatar from '@/components/settings/HeaderAvatar';
+import NotificationBell from '@/components/notifications/NotificationBell';
+import { resolveProfile } from '@/lib/profiles';
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
@@ -56,6 +59,20 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [profile, setProfile] = useState(null);
+
+  // The header shows the wallet's own face once it has one.
+  const loadProfile = useCallback(async () => {
+    if (!wallet?.address) {
+      setProfile(null);
+      return;
+    }
+    setProfile(await resolveProfile(wallet.address));
+  }, [wallet?.address]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const load = useCallback(async () => {
     const list = await base44.entities.Token.list('-created_date', 100);
@@ -107,19 +124,11 @@ export default function Home() {
         <div className="relative px-3.5 pt-[calc(0.875rem+env(safe-area-inset-top))] pb-4">
           <div className="flex items-center justify-between gap-2 animate-[sp-up_.6s_ease-out_both]">
             <div className="flex items-center gap-2 min-w-0">
-              <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                aria-label="Settings"
-                className="shrink-0 rounded-full transition duration-200 hover:shadow-[0_0_14px_rgba(0,245,155,.65)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-              >
-                <Image
-                  src={MASCOT_IMAGE}
-                  alt=""
-                  fittingType="fill"
-                  className="w-[26px] h-[26px] rounded-full border border-[#00F59B]/45 shadow-[0_0_12px_rgba(0,245,155,.5)]"
-                />
-              </button>
+              <HeaderAvatar
+                profile={profile}
+                address={wallet?.address}
+                onOpenSettings={() => setShowSettings(true)}
+              />
               {/* The wallet balances want this space too: on the narrowest
                   screens the mascot carries the brand on its own. */}
               <span className="hidden min-[390px]:inline font-display text-[15px] tracking-[.01em] uppercase text-[#00F59B] [text-shadow:0_0_12px_rgba(0,245,155,.6)] truncate">
@@ -127,6 +136,7 @@ export default function Home() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <NotificationBell />
               <Link
                 to="/rewards"
                 aria-label="Rewards"
@@ -205,7 +215,12 @@ export default function Home() {
           <Leaderboard tokens={allTokens} walletAddress={wallet?.address} />
         </div>
       )}
-      <SettingsMenu open={showSettings} onOpenChange={setShowSettings} />
+      <SettingsMenu
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        profile={profile}
+        onProfileSaved={loadProfile}
+      />
     </PageLayout>
   );
 }
