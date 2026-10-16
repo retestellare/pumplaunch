@@ -67,6 +67,16 @@ export function launchShare({ id, symbol, name }) {
   };
 }
 
+// The daily drop is the app's own ad: the share that unlocks the reward also
+// tells the timeline that free PLUNCH lands every 24 hours.
+export function dailyRewardShare({ amount = 90000 } = {}) {
+  return {
+    title: `Free $PLUNCH every day on ${APP_NAME}`,
+    text: `🎁 Claim ${amount.toLocaleString('en-US')} $PLUNCH free every 24 hours on ${APP_NAME} — launch and trade memecoins on Stellar.`,
+    url: absoluteUrl('/'),
+  };
+}
+
 export function postShare({ post, author }) {
   const body = (post?.content || '').trim();
   const snippet = body.length > 140 ? `${body.slice(0, 139).trimEnd()}…` : body;

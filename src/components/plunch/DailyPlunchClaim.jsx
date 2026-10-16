@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
+import { Check, ExternalLink, Loader2, Rocket, Share2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
+import { dailyRewardShare, xShareUrl } from '@/lib/share';
 
 const REWARD = 90000;
 const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
@@ -19,6 +20,7 @@ export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
   const [status, setStatus] = useState(null);
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
+  const [shared, setShared] = useState(false); // the X post went out for this drop
   const [error, setError] = useState('');
   const [txHash, setTxHash] = useState('');
   const [now, setNow] = useState(() => Date.now());
@@ -42,6 +44,7 @@ export default function DailyPlunchClaim() {
       setStatus(data);
       if (data?.eligible) {
         setPhase('idle');
+        setShared(false);
         setTxHash('');
         setError('');
       }
@@ -64,7 +67,7 @@ export default function DailyPlunchClaim() {
     load();
   }, [now, nextAt, load]);
 
-  const claim = async () => {
+  const claim = useCallback(async () => {
     setPhase('claiming');
     setError('');
     try {
@@ -76,10 +79,34 @@ export default function DailyPlunchClaim() {
       setPhase('sent');
     } catch (err) {
       setPhase('idle');
+      // Nothing was sent, so the drop goes back behind the share.
+      setShared(false);
       setError(err?.response?.data?.error || 'The claim did not go through.');
       load();
     }
-  };
+  }, [wallet?.address, load]);
+
+  // The share opens X on a post advertising the daily drop; the reward is sent
+  // as soon as the app is back in view, so the drop costs one tap.
+  const shareToX = useCallback(() => {
+    const { text, url } = dailyRewardShare({ amount: REWARD });
+    window.open(xShareUrl({ text, url }), '_blank', 'noopener,noreferrer');
+    setShared(true);
+    setError('');
+  }, []);
+
+  useEffect(() => {
+    if (!shared || phase !== 'idle' || !status?.eligible) return;
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') claim();
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    };
+  }, [shared, phase, status?.eligible, claim]);
 
   const remaining = nextAt ? countdown(nextAt - now) : null;
   const spinning = !wallet?.address || (status === null && phase === 'idle' && !error);
@@ -141,13 +168,26 @@ export default function DailyPlunchClaim() {
       </p>
     );
   } else if (status?.eligible) {
-    bodyNode = (
+    bodyNode = shared ? (
       <button
         onClick={claim}
         className="w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
       >
         Claim {AMOUNT_LABEL} PLUNCH
       </button>
+    ) : (
+      <>
+        <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#00F59B]">Today&apos;s drop is ready</p>
+        <p className="text-[11px] leading-snug text-[#F2F7F4]/55">
+          Post it on X to unlock your {AMOUNT_LABEL} PLUNCH. The drop is sent the moment you come back.
+        </p>
+        <button
+          onClick={shareToX}
+          className="mt-2 w-full h-[44px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[12px] tracking-[.08em] uppercase flex items-center justify-center gap-2 shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+        >
+          <Share2 size={15} /> Share on X to claim
+        </button>
+      </>
     );
   } else {
     bodyNode = (
@@ -173,19 +213,33 @@ export default function DailyPlunchClaim() {
           </p>
         </div>
       </div>
-      <div className="mt-3">
-        {phase === 'claiming' ? (
-          <button
-            disabled
-            className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
-          >
-            <Loader2 size={16} className="animate-spin" /> Sending…
-          </button>
-        ) : (
-          bodyNode
-        )}
-        {error && <p className="mt-2 text-[11px] leading-snug text-[#FF4D6D]">{error}</p>}
+      {/* The drop's own ad: a share button sits beside the countdown so the
+          24-hour reward can be passed on at any time. */}
+      <div className="mt-3 flex items-center gap-2.5">
+        <div className="flex-1 min-w-0">
+          {phase === 'claiming' ? (
+            <button
+              disabled
+              className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
+            >
+              <Loader2 size={16} className="animate-spin" /> Sending…
+            </button>
+          ) : (
+            bodyNode
+          )}
+        </div>
+        <button
+          onClick={shareToX}
+          disabled={phase === 'claiming'}
+          aria-label="Share the daily PLUNCH drop on X"
+          title="Share the daily drop"
+          className="w-[46px] h-[46px] shrink-0 rounded-[12px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex flex-col items-center justify-center gap-[2px] transition duration-200 hover:bg-[#00F59B]/20 hover:shadow-[0_0_14px_rgba(0,245,155,.45)] active:opacity-85 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+        >
+          <Share2 size={16} />
+          <span className="text-[8px] font-black uppercase tracking-[.06em]">Share</span>
+        </button>
       </div>
+      {error && <p className="mt-2 text-[11px] leading-snug text-[#FF4D6D]">{error}</p>}
     </div>
   );
 }
