@@ -9,6 +9,13 @@ ORG_DESCRIPTION="Stellar Pump — launch and trade memecoins and NFT collections
 ORG_KEYWORDS="stellar, memecoin, nft, launchpad, xlm, dex"
 
 [[CURRENCIES]]
+code="PLUNCH"
+issuer="GC37N3TEZDIXDIGZC4PYM2ZTWE5ASWDDJGGXIPWLBGNMFROOBFF5MP2D"
+name="Pumplaunch utility token"
+desc="PumpLaunch Token (PLUNCH) 🚀 PumpLaunch is the native utility token of the leading token launch platform on the Stellar Lumens (XLM) network. Designed to make launching and trading memecoins and new crypto projects instant, secure, and cost-effective, our app leverages Stellar's speed and near-zero fees to deliver a seamless experience."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/6e5220560_32642.png"
+
+[[CURRENCIES]]
 code="ORGON"
 issuer="GD7G7INE22VQKMUQ4HMXZA7IJGST6AVZXZSWRLVUB3HNQKMPNGEL4I4R"
 name="Orgon Energy DAO"

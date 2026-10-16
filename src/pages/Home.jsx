@@ -19,6 +19,7 @@ import MarketTicker from '@/components/ticker/MarketTicker';
 import FlashNews from '@/components/FlashNews';
 import SettingsMenu from '@/components/settings/SettingsMenu';
 import HeaderAvatar from '@/components/settings/HeaderAvatar';
+import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
 import { resolveProfile } from '@/lib/profiles';
 
 const MODES = [
@@ -192,6 +193,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+      <div className="px-3.5 pt-3 animate-[sp-up_.6s_.25s_ease-out_both]">
+        <DailyPlunchClaim />
+      </div>
       {mode === 'nft' ? (
         <NftDropList />
       ) : loading ? (

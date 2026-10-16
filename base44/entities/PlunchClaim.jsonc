@@ -1,0 +1,47 @@
+{
+  "name": "PlunchClaim",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number",
+      "default": 90000
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "paid"
+      ],
+      "default": "pending"
+    },
+    "tx_hash": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "wallet_address",
+    "amount",
+    "status"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
