@@ -1072,7 +1072,27 @@ export function estimateTradeCost(side, { needsUsdcTrustline = false } = {}) {
   return { feeXlm, reserveXlm, operations: ops };
 }
 
-function parseTomlCurrency(toml, code) {
+// An issuer may write the artwork as a full URL, as a bare host, or as a path
+// on its own domain — all three have to become something an image can load.
+function absoluteLogo(value, base) {
+  if (!value) return null;
+  const v = value.trim();
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v.startsWith('//')) return `https:${v}`;
+  if (v.startsWith('/')) {
+    try {
+      return new URL(v, base).toString();
+    } catch {
+      return null;
+    }
+  }
+  return `https://${v}`;
+}
+
+// Issuers publish a currency as either the SEP-1 long spellings
+// (CURRENCY_CODE/CURRENCY_LOGO) or the short ones used by most Stellar tooling
+// (code/name/image), so both are read.
+function parseTomlCurrency(toml, code, base) {
   const lines = toml.split('\n');
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim() === '[[CURRENCIES]]') {
@@ -1086,11 +1106,11 @@ function parseTomlCurrency(toml, code) {
         if (eqIdx === -1) continue;
         const key = l.substring(0, eqIdx).trim().toUpperCase();
         const val = l.substring(eqIdx + 1).replace(/"/g, '').trim();
-        if (key === 'CURRENCY_CODE') blockCode = val;
-        else if (key === 'CURRENCY_LOGO') logo = val;
-        else if (key === 'CURRENCY_NAME') name = val;
+        if (key === 'CURRENCY_CODE' || key === 'CODE') blockCode = val;
+        else if (key === 'CURRENCY_LOGO' || key === 'IMAGE' || key === 'LOGO') logo = val;
+        else if (key === 'CURRENCY_NAME' || key === 'NAME') name = val;
       }
-      if (blockCode === code) return { logo, name };
+      if (blockCode === code) return { logo: absoluteLogo(logo, base), name };
     }
   }
   return null;
@@ -1125,7 +1145,7 @@ export async function fetchTokenMetadata(assetCode, issuer) {
       const tomlRes = await fetchWithTimeout(tomlUrl, 5000);
       if (tomlRes.ok) {
         const toml = await tomlRes.text();
-        const parsed = parseTomlCurrency(toml, assetCode);
+        const parsed = parseTomlCurrency(toml, assetCode, base);
         if (parsed) {
           logo = parsed.logo;
           name = parsed.name;

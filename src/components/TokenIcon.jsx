@@ -1,4 +1,5 @@
 import { Image } from '@/components/ui/image';
+import { isUsableImage } from '@/lib/tokenImages';
 
 const COLORS = ['#ff6b6b', '#4ecdc4', '#ffe66d', '#a8e6cf', '#c7a8ff', '#ffaaa5', '#7fd8ff', '#ffb3d9', '#ffd166', '#06d6a0'];
 
@@ -6,7 +7,7 @@ export default function TokenIcon({ token, size = 40, shape = 'circle' }) {
   const sym = token?.symbol || token?.code || token?.name || '?';
   const radius = shape === 'square' ? 'rounded-xl' : 'rounded-full';
 
-  if (token?.image_url) {
+  if (isUsableImage(token?.image_url)) {
     return (
       <div
         style={{ width: size, height: size }}
