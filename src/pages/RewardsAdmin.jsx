@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/use-toast';
 import WalletButton from '@/components/WalletButton';
 import ClaimReviewCard from '@/components/rewards/admin/ClaimReviewCard';
 import RewardSettingsForm from '@/components/rewards/admin/RewardSettingsForm';
+import ExternalTokenImport from '@/components/rewards/admin/ExternalTokenImport';
 import { ClaimStatusChip } from '@/components/rewards/ClaimHistory';
 import {
   claimOwnership,
@@ -172,6 +173,8 @@ export default function RewardsAdmin() {
                 </div>
               )}
             </div>
+
+            <ExternalTokenImport wallet={wallet?.address} />
 
             <RewardSettingsForm rules={access.rules} wallet={wallet?.address} onSaved={load} />
           </>

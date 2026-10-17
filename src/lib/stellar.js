@@ -904,6 +904,28 @@ export function buildXlmToUsdcSwapTransaction({ sourceAccount, xlmAmount, minUsd
   return tx.setTimeout(300).build();
 }
 
+// An asset as the ledger itself reports it: the amount in circulation and how
+// many wallets hold a trustline for it. Null means Stellar has no such code and
+// issuer pair — the check that tells an external listing apart from a typo.
+export async function fetchIssuedAsset(assetCode, issuer) {
+  const data = await horizonJsonSafe(
+    `/assets?asset_code=${encodeURIComponent(assetCode)}&asset_issuer=${encodeURIComponent(issuer)}&limit=1`,
+    60000
+  );
+  const record = data?._embedded?.records?.[0];
+  if (!record) return null;
+  // Horizon reports trustline balances under `balances` and the number of
+  // holding wallets under `accounts`; older spelling kept as a fallback.
+  const balances = record.balances || {};
+  const supply =
+    (parseFloat(balances.authorized) || 0) + (parseFloat(balances.authorized_to_maintain_liabilities) || 0);
+  return {
+    supply: supply || parseFloat(record.amount) || 0,
+    accounts: record.accounts?.authorized ?? record.num_accounts ?? 0,
+    toml: record._links?.toml?.href || record.toml_url || '',
+  };
+}
+
 export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0, limit = 50 } = {}) {
   const [holdersData, ...tradeSets] = await Promise.all([
     horizonJsonSafe(`/accounts?asset=${assetCode}:${issuer}&limit=200`),
