@@ -34,7 +34,6 @@ import {
   pollForAccount,
   pollForTransaction,
   findExistingTrustline,
-  fetchTokenMetadata,
   fetchOrderBook,
   fetchPoolPrice,
   fetchPoolFor,
@@ -43,6 +42,7 @@ import {
   USDC_CODE,
   USDC_ISSUER,
 } from '@/lib/stellar';
+import { loadAssetMeta } from '@/lib/tokenImages';
 import { POOL_TYPES, poolsForType, quoteOf } from '@/lib/pools';
 import {
   loadAttempt,
@@ -566,7 +566,7 @@ export default function LaunchToken() {
       setStage('list', 'Listing in app…');
       if (store.reused_asset && (!store.image_url || store.name === store.symbol)) {
         try {
-          const meta = await fetchTokenMetadata(sym, store.issuer_public_key);
+          const meta = await loadAssetMeta(sym, store.issuer_public_key);
           if (meta) {
             if (meta.logo && !store.image_url) store.image_url = meta.logo;
             if (meta.name) store.name = meta.name;

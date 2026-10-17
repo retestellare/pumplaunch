@@ -1105,7 +1105,11 @@ function parseTomlCurrency(toml, code, base) {
         const eqIdx = l.indexOf('=');
         if (eqIdx === -1) continue;
         const key = l.substring(0, eqIdx).trim().toUpperCase();
-        const val = l.substring(eqIdx + 1).replace(/"/g, '').trim();
+        const val = l
+          .substring(eqIdx + 1)
+          .trim()
+          .replace(/^["']|["']$/g, '')
+          .trim();
         if (key === 'CURRENCY_CODE' || key === 'CODE') blockCode = val;
         else if (key === 'CURRENCY_LOGO' || key === 'IMAGE' || key === 'LOGO') logo = val;
         else if (key === 'CURRENCY_NAME' || key === 'NAME') name = val;

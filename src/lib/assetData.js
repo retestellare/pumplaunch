@@ -1,10 +1,10 @@
 import {
   fetchAssetStats,
   fetchXlmUsdcRate,
-  fetchTokenMetadata,
   priceFills,
 } from '@/lib/stellar';
 import { fetchMarkets } from '@/lib/market';
+import { loadAssetMeta } from '@/lib/tokenImages';
 
 // Any Stellar asset may trade against XLM, against USDC, or against both, so
 // every market is probed and the ones that actually price it are the ones kept.
@@ -27,7 +27,7 @@ export async function loadAssetData({ code, issuer, quotes = ASSET_QUOTES, limit
   const [stats, market, toml] = await Promise.all([
     fetchAssetStats(code, issuer, { quotes: active, xlmPerUsdc, limit }),
     fetchMarkets(code, issuer, { quotes: active, xlmPerUsdc }),
-    meta ? Promise.resolve(meta) : fetchTokenMetadata(code, issuer),
+    meta ? Promise.resolve(meta) : loadAssetMeta(code, issuer),
   ]);
 
   // Only markets with something on them are offered for trading.

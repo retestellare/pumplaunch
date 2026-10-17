@@ -9,6 +9,20 @@ ORG_DESCRIPTION="Stellar Pump — launch and trade memecoins and NFT collections
 ORG_KEYWORDS="stellar, memecoin, nft, launchpad, xlm, dex"
 
 [[CURRENCIES]]
+code="STROLL"
+issuer="GDSWCTBGJSRRTMKE2OOUHBTB4P6JSCXQ3OAAIACEOW442ITEUNS22BUR"
+name="STROLL"
+desc="The most fun community token on the Stellar Network. Join the strollers and let's have some fun!"
+image="https://stroll-website.vercel.app/troll-logo.jpg"
+
+[[CURRENCIES]]
+code="WEEDCOIN"
+issuer="GCVX7ZYNOTBLX44LSK3DBXKZC5OGQ2ET2LLRYEABHAWILKP6JQFIR4GK"
+name="WEEDCOIN"
+desc="A meme token inspired by the cannabis culture, aimed at bringing humor and engagement to crypto enthusiasts."
+image="https://res.cloudinary.com/dvrxujeru/image/upload/v1775122810/13022_11zon_ok8qdi.png"
+
+[[CURRENCIES]]
 code="PLUNCH"
 issuer="GC37N3TEZDIXDIGZC4PYM2ZTWE5ASWDDJGGXIPWLBGNMFROOBFF5MP2D"
 name="Pumplaunch utility token"

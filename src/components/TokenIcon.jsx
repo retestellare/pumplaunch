@@ -1,19 +1,22 @@
 import { Image } from '@/components/ui/image';
-import { isUsableImage } from '@/lib/tokenImages';
+import { useResolvedImage } from '@/lib/tokenImages';
 
 const COLORS = ['#ff6b6b', '#4ecdc4', '#ffe66d', '#a8e6cf', '#c7a8ff', '#ffaaa5', '#7fd8ff', '#ffb3d9', '#ffd166', '#06d6a0'];
 
 export default function TokenIcon({ token, size = 40, shape = 'circle' }) {
   const sym = token?.symbol || token?.code || token?.name || '?';
   const radius = shape === 'square' ? 'rounded-xl' : 'rounded-full';
+  // An asset with no artwork of its own shows the logo its issuer publishes in
+  // stellar.toml — the same one the Stellar wallets display.
+  const image = useResolvedImage(token);
 
-  if (isUsableImage(token?.image_url)) {
+  if (image) {
     return (
       <div
         style={{ width: size, height: size }}
         className={`${radius} overflow-hidden shrink-0 ring-1 ring-[#16211E]`}
       >
-        <Image src={token.image_url} alt={sym} fittingType="fill" className="w-full h-full" />
+        <Image src={image} alt={sym} fittingType="fill" className="w-full h-full" />
       </div>
     );
   }

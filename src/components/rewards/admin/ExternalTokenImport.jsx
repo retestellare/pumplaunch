@@ -34,7 +34,6 @@ export default function ExternalTokenImport({ wallet }) {
   const [lookup, setLookup] = useState(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [image, setImage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
@@ -45,7 +44,6 @@ export default function ExternalTokenImport({ wallet }) {
     setIssuer('');
     setName('');
     setDescription('');
-    setImage('');
   };
 
   const find = async () => {
@@ -58,7 +56,6 @@ export default function ExternalTokenImport({ wallet }) {
       setLookup(found);
       setName(found.name);
       setDescription('');
-      setImage(found.image_url);
     } catch (e) {
       setError(e?.message || String(e));
     }
@@ -70,7 +67,7 @@ export default function ExternalTokenImport({ wallet }) {
     setError('');
     try {
       const token = await importExternalToken(
-        { ...lookup, name: name.trim() || lookup.asset_code, description, image_url: image.trim() },
+        { ...lookup, name: name.trim() || lookup.asset_code, description },
         wallet
       );
       setDone(`$${token.symbol} is now listed on the platform.`);
@@ -127,8 +124,8 @@ export default function ExternalTokenImport({ wallet }) {
         <div className="space-y-2.5">
           <div className="bg-black/25 rounded-xl p-3 space-y-2">
             <div className="flex items-center gap-3">
-              {image ? (
-                <Image src={image} alt="" fittingType="fill" className="w-10 h-10 rounded-xl shrink-0" />
+              {lookup.image_url ? (
+                <Image src={lookup.image_url} alt="" fittingType="fill" className="w-10 h-10 rounded-xl shrink-0" />
               ) : (
                 <span className="w-10 h-10 rounded-xl bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] text-[11px] font-black flex items-center justify-center shrink-0">
                   {lookup.asset_code.slice(0, 4)}
@@ -166,15 +163,6 @@ export default function ExternalTokenImport({ wallet }) {
               rows={2}
               placeholder="What this token is"
               className={INPUT_CLASS}
-            />
-          </label>
-          <label className="block space-y-1">
-            <FieldLabel>Logo URL (optional)</FieldLabel>
-            <Input
-              value={image}
-              onChange={(e) => setImage(e.target.value.trim())}
-              placeholder="https://…"
-              className={`${INPUT_CLASS} text-[11px]`}
             />
           </label>
 

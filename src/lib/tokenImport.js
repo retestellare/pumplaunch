@@ -3,10 +3,10 @@ import { base44 } from '@/api/base44Client';
 import {
   fetchAssetStats,
   fetchIssuedAsset,
-  fetchTokenMetadata,
   fetchXlmUsdcRate,
   loadAccount,
 } from '@/lib/stellar';
+import { isUsableImage, loadAssetMeta } from '@/lib/tokenImages';
 import { fetchMarkets } from '@/lib/market';
 
 // The app trades against these two quote assets, so a listing is probed for
@@ -44,7 +44,7 @@ export async function lookupExternalToken(code, issuer) {
 
   const xlmPerUsdc = await fetchXlmUsdcRate();
   const [meta, stats, markets] = await Promise.all([
-    fetchTokenMetadata(assetCode, address),
+    loadAssetMeta(assetCode, address, account.home_domain),
     fetchAssetStats(assetCode, address, { quotes: QUOTE_PROBES, xlmPerUsdc, limit: 20 }),
     fetchMarkets(assetCode, address, { quotes: QUOTE_PROBES, xlmPerUsdc }),
   ]);
@@ -59,7 +59,7 @@ export async function lookupExternalToken(code, issuer) {
     asset_code: assetCode,
     issuer: address,
     name: meta?.name || assetCode,
-    image_url: meta?.logo || '',
+    image_url: isUsableImage(meta?.logo) ? meta.logo : '',
     home_domain: account.home_domain || meta?.homeDomain || '',
     supply: issued.supply,
     holders: issued.accounts || stats.holders || 0,

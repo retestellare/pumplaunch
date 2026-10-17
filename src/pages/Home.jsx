@@ -21,7 +21,6 @@ import SettingsMenu from '@/components/settings/SettingsMenu';
 import HeaderAvatar from '@/components/settings/HeaderAvatar';
 import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
 import { resolveProfile } from '@/lib/profiles';
-import { tokenWithLogo, useAssetLogos } from '@/lib/tokenImages';
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
@@ -61,10 +60,6 @@ export default function Home() {
   const [enriching, setEnriching] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [profile, setProfile] = useState(null);
-
-  // Tokens that carry no artwork of their own take the logo their issuer
-  // publishes in stellar.toml.
-  const logos = useAssetLogos(allTokens);
 
   // The header shows the wallet's own face once it has one.
   const loadProfile = useCallback(async () => {
@@ -212,7 +207,7 @@ export default function Home() {
       ) : (
         <div className="border-t border-[#16211E]">
           {tokens.map((t, i) => (
-            <TokenCard key={t.id} token={tokenWithLogo(t, logos)} index={i} rank={enriching ? null : i + 1} />
+            <TokenCard key={t.id} token={t} index={i} rank={enriching ? null : i + 1} />
           ))}
         </div>
       )}

@@ -6,7 +6,6 @@ import { loadAccount, parseBalances } from '@/lib/stellar';
 import { loadAssetData } from '@/lib/assetData';
 import { fetchTokenCosts, portfolioPnl } from '@/lib/positions';
 import { mapLimit } from '@/lib/concurrency';
-import { tokenWithLogo, useAssetLogos } from '@/lib/tokenImages';
 import { resolveProfile, shortAddr } from '@/lib/profiles';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
@@ -187,10 +186,6 @@ export default function Portfolio() {
       active = false;
     };
   }, [balances]);
-
-  // Any asset with no artwork of its own shows the logo its issuer publishes in
-  // its stellar.toml, the same source the Stellar wallets read.
-  const logos = useAssetLogos(enrichedAssets.length > 0 ? enrichedAssets : balances?.assets);
 
   // Load history (activity + messages) when tab opened
   useEffect(() => {
@@ -420,7 +415,7 @@ export default function Portfolio() {
               (enrichedAssets.length > 0 ? enrichedAssets : balances.assets).map((a) => (
                 <WalletAssetRow
                   key={`${a.code}:${a.issuer}`}
-                  asset={tokenWithLogo(a, logos)}
+                  asset={a}
                   cost={costs[a.token_id]}
                 />
               ))
