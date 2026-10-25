@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, Rocket, Share2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
-import { dailyRewardShare, xShareUrl } from '@/lib/share';
+import { dailyRewardShare, sharePayload } from '@/lib/share';
+import { useToast } from '@/components/ui/use-toast';
 
 const REWARD = 90000;
 const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
@@ -18,6 +19,7 @@ function countdown(ms) {
 // The daily PLUNCH drop: one claim per wallet every 24 hours.
 export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
+  const { toast } = useToast();
   const [status, setStatus] = useState(null);
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
   const [shared, setShared] = useState(false); // the X post went out for this drop
@@ -25,6 +27,7 @@ export default function DailyPlunchClaim() {
   const [txHash, setTxHash] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const refreshedFor = useRef(null);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -68,6 +71,8 @@ export default function DailyPlunchClaim() {
   }, [now, nextAt, load]);
 
   const claim = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setPhase('claiming');
     setError('');
     try {
@@ -83,17 +88,22 @@ export default function DailyPlunchClaim() {
       setShared(false);
       setError(err?.response?.data?.error || 'The claim did not go through.');
       load();
+    } finally {
+      inFlight.current = false;
     }
   }, [wallet?.address, load]);
 
-  // The share opens X on a post advertising the daily drop; the reward is sent
-  // as soon as the app is back in view, so the drop costs one tap.
-  const shareToX = useCallback(() => {
-    const { text, url } = dailyRewardShare({ amount: REWARD });
-    window.open(xShareUrl({ text, url }), '_blank', 'noopener,noreferrer');
+  // The share goes out through the device's own share sheet, so the drop can be
+  // posted to X, Telegram, WhatsApp or anywhere else installed; the reward is
+  // sent as soon as a share completes.
+  const shareDrop = useCallback(async () => {
+    const { title, text, url } = dailyRewardShare({ amount: REWARD });
+    const result = await sharePayload({ title, text, url, toast });
+    if (result !== 'shared' && result !== 'copied') return;
     setShared(true);
     setError('');
-  }, []);
+    claim();
+  }, [toast, claim]);
 
   useEffect(() => {
     if (!shared || phase !== 'idle' || !status?.eligible) return;
@@ -179,13 +189,13 @@ export default function DailyPlunchClaim() {
       <>
         <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#00F59B]">Today&apos;s drop is ready</p>
         <p className="text-[11px] leading-snug text-[#F2F7F4]/55">
-          Post it on X to unlock your {AMOUNT_LABEL} PLUNCH. The drop is sent the moment you come back.
+          Share it anywhere to unlock your {AMOUNT_LABEL} PLUNCH. The drop is sent as soon as you share.
         </p>
         <button
-          onClick={shareToX}
+          onClick={shareDrop}
           className="mt-2 w-full h-[44px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[12px] tracking-[.08em] uppercase flex items-center justify-center gap-2 shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
         >
-          <Share2 size={15} /> Share on X to claim
+          <Share2 size={15} /> Share to claim
         </button>
       </>
     );
@@ -229,9 +239,9 @@ export default function DailyPlunchClaim() {
           )}
         </div>
         <button
-          onClick={shareToX}
+          onClick={shareDrop}
           disabled={phase === 'claiming'}
-          aria-label="Share the daily PLUNCH drop on X"
+          aria-label="Share the daily PLUNCH drop"
           title="Share the daily drop"
           className="w-[46px] h-[46px] shrink-0 rounded-[12px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex flex-col items-center justify-center gap-[2px] transition duration-200 hover:bg-[#00F59B]/20 hover:shadow-[0_0_14px_rgba(0,245,155,.45)] active:opacity-85 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
         >

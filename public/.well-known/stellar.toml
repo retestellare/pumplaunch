@@ -9,6 +9,19 @@ ORG_DESCRIPTION="Stellar Pump — launch and trade memecoins and NFT collections
 ORG_KEYWORDS="stellar, memecoin, nft, launchpad, xlm, dex"
 
 [[CURRENCIES]]
+code="SPARK"
+issuer="GAOZPXNUAL2GPATYKLTT3UIADO7VZ2ZSRM6BPKNX6LGK7M2LYGT3VTF7"
+name="Scintilla"
+image="https://res.cloudinary.com/dvrxujeru/image/upload/v1774045693/stellarforge/tokens/c4a1fb9a-8d24-4005-8c66-dcf68983f60b/logo.png"
+
+[[CURRENCIES]]
+code="METJ"
+issuer="GBZHJ3OPYGNDY3AB7VZDI6RK7L2FE2AYMB56P6ARGRCRFHBMC5WMP37P"
+name="Metal jack"
+desc="Amazing art fashion"
+image="https://res.cloudinary.com/dvrxujeru/image/upload/v1777380053/logo_1_qxziiy_pv0kar.png"
+
+[[CURRENCIES]]
 code="STROLL"
 issuer="GDSWCTBGJSRRTMKE2OOUHBTB4P6JSCXQ3OAAIACEOW442ITEUNS22BUR"
 name="STROLL"
