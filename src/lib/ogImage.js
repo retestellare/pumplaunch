@@ -213,6 +213,25 @@ export async function generateOgCard(token, stats = {}) {
   return entry;
 }
 
+// A card drawn around the picture the user picked for this share. Nothing is
+// uploaded or saved on the token, so the token keeps its own preview for
+// everyone else while the chosen artwork travels with this one share.
+export async function customOgCard(token, stats = {}, imageFile) {
+  const source = { ...token, image_url: URL.createObjectURL(imageFile) };
+  try {
+    const blob = await renderCard(source, stats);
+    return {
+      url: URL.createObjectURL(blob),
+      file: new File([blob], `${(token.symbol || 'token').toLowerCase()}-preview.png`, {
+        type: 'image/png',
+      }),
+      blob,
+    };
+  } finally {
+    URL.revokeObjectURL(source.image_url);
+  }
+}
+
 // Returns the card for a token, generating it once if it does not exist yet.
 export async function ensureOgCard(token, stats = {}) {
   if (!token?.id || typeof document === 'undefined') return null;

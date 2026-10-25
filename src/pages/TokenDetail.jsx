@@ -33,10 +33,12 @@ export default function TokenDetail() {
   const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
   const [ordersKey, setOrdersKey] = useState(0);
   const [ogCard, setOgCard] = useState(null);
+  const [customCard, setCustomCard] = useState(null);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
     setToken(t);
+    setCustomCard(null);
     setStats(null);
     setMarket(null);
     setLiveTrades([]);
@@ -103,7 +105,7 @@ export default function TokenDetail() {
             variant="icon"
             className="ml-auto"
             payload={tokenShare({ token, price, change24h })}
-            imageFile={ogCard?.file}
+            imageFile={customCard?.file || ogCard?.file}
           />
         </div>
       </header>
@@ -157,8 +159,9 @@ export default function TokenDetail() {
             imageFile={ogCard.file}
             price={price}
             change24h={change24h}
-          />
-        )}
+            stats={{ price, marketCap, holders }}
+            onCardChange={setCustomCard}
+          />        )}
 
         <TokenInfoCards token={token} stats={stats} market={market} />
 
