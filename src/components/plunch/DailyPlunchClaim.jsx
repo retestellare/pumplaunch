@@ -28,6 +28,7 @@ export default function DailyPlunchClaim() {
   const [now, setNow] = useState(() => Date.now());
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
+  const claimed = useRef(false); // the drop is paid for this visit
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -50,6 +51,7 @@ export default function DailyPlunchClaim() {
         setShared(false);
         setTxHash('');
         setError('');
+        claimed.current = false;
       }
     } catch {
       setStatus(null);
@@ -70,13 +72,16 @@ export default function DailyPlunchClaim() {
     load();
   }, [now, nextAt, load]);
 
+  // Idempotent: the share sheet and the return-to-app signal both ask for the
+  // drop, and only the first request may pay out.
   const claim = useCallback(async () => {
-    if (inFlight.current) return;
+    if (!wallet?.address || inFlight.current || claimed.current) return;
     inFlight.current = true;
     setPhase('claiming');
     setError('');
     try {
       const { data } = await base44.functions.invoke('plunchClaim', { wallet_address: wallet.address });
+      claimed.current = true;
       setTxHash(data.tx_hash);
       setStatus((prev) =>
         prev ? { ...prev, eligible: false, next_at: data.next_at, balance: (prev.balance || 0) + REWARD, pool: prev.pool - REWARD } : prev
@@ -94,19 +99,28 @@ export default function DailyPlunchClaim() {
   }, [wallet?.address, load]);
 
   // The share goes out through the device's own share sheet, so the drop can be
-  // posted to X, Telegram, WhatsApp or anywhere else installed; the reward is
-  // sent as soon as a share completes.
+  // posted to X, Telegram, WhatsApp or anywhere else installed. The drop is
+  // unlocked the moment the sheet opens: a phone can freeze this page while
+  // another app is in front of it and the share promise never resumes, so the
+  // return to the app is what actually sends the reward (see the effect below).
   const shareDrop = useCallback(async () => {
+    if (inFlight.current || claimed.current || phase === 'claiming') return;
     const { title, text, url } = dailyRewardShare({ amount: REWARD });
-    const result = await sharePayload({ title, text, url, toast });
-    if (result !== 'shared' && result !== 'copied') return;
     setShared(true);
     setError('');
+    const result = await sharePayload({ title, text, url, toast });
+    if (result === 'cancelled' || result === 'failed') {
+      // The sheet was dismissed: the drop stays behind the share button.
+      setShared(false);
+      return;
+    }
     claim();
-  }, [toast, claim]);
+  }, [toast, claim, phase]);
 
   useEffect(() => {
     if (!shared || phase !== 'idle' || !status?.eligible) return;
+    // Coming back from the share sheet is the signal that the post went out,
+    // whether or not the share promise ever resumed.
     const onReturn = () => {
       if (document.visibilityState === 'visible') claim();
     };
