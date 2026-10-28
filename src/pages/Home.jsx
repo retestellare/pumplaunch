@@ -22,6 +22,9 @@ import HeaderAvatar from '@/components/settings/HeaderAvatar';
 import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
 import { resolveProfile } from '@/lib/profiles';
 
+// The daily PLUNCH drop needs the app server, which is currently unavailable.
+const FAUCET_ENABLED = false;
+
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
   { key: 'nft', label: '🖼️ NFT Drops' },
@@ -193,9 +196,12 @@ export default function Home() {
           </div>
         </div>
       </section>
-      <div className="px-3.5 pt-3 animate-[sp-up_.6s_.25s_ease-out_both]">
-        <DailyPlunchClaim />
-      </div>
+      {/* Faucet paused: flip to true to bring the daily PLUNCH drop back. */}
+      {FAUCET_ENABLED && (
+        <div className="px-3.5 pt-3 animate-[sp-up_.6s_.25s_ease-out_both]">
+          <DailyPlunchClaim />
+        </div>
+      )}
       {mode === 'nft' ? (
         <NftDropList />
       ) : loading ? (
