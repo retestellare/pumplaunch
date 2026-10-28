@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ExternalLink, Loader2, Rocket, Share2 } from 'lucide-react';
+import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
-import { dailyRewardShare, sharePayload } from '@/lib/share';
-import { useToast } from '@/components/ui/use-toast';
 
 const REWARD = 90000;
 const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
@@ -16,19 +14,17 @@ function countdown(ms) {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
-// The daily PLUNCH drop: one claim per wallet every 24 hours.
+// The daily PLUNCH drop: one request per wallet every 24 hours.
 export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
-  const { toast } = useToast();
   const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
-  const [shared, setShared] = useState(false); // the X post went out for this drop
   const [error, setError] = useState('');
   const [txHash, setTxHash] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
-  const claimed = useRef(false); // the drop is paid for this visit
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -40,6 +36,8 @@ export default function DailyPlunchClaim() {
       setStatus(null);
       return;
     }
+    setLoading(true);
+    setError('');
     try {
       const { data } = await base44.functions.invoke('plunchClaim', {
         action: 'status',
@@ -48,13 +46,14 @@ export default function DailyPlunchClaim() {
       setStatus(data);
       if (data?.eligible) {
         setPhase('idle');
-        setShared(false);
         setTxHash('');
-        setError('');
-        claimed.current = false;
       }
     } catch {
+      // A failed check must not leave the card spinning forever.
       setStatus(null);
+      setError('Could not check this wallet right now.');
+    } finally {
+      setLoading(false);
     }
   }, [wallet?.address]);
 
@@ -65,23 +64,20 @@ export default function DailyPlunchClaim() {
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
 
   // When the 24 hours run out, the card asks the server again so the button
-  // lights up on its own while the page stays open.
+  // unlocks on its own while the page stays open.
   useEffect(() => {
     if (!nextAt || now < nextAt || refreshedFor.current === nextAt) return;
     refreshedFor.current = nextAt;
     load();
   }, [now, nextAt, load]);
 
-  // Idempotent: the share sheet and the return-to-app signal both ask for the
-  // drop, and only the first request may pay out.
   const claim = useCallback(async () => {
-    if (!wallet?.address || inFlight.current || claimed.current) return;
+    if (!wallet?.address || inFlight.current) return;
     inFlight.current = true;
     setPhase('claiming');
     setError('');
     try {
       const { data } = await base44.functions.invoke('plunchClaim', { wallet_address: wallet.address });
-      claimed.current = true;
       setTxHash(data.tx_hash);
       setStatus((prev) =>
         prev ? { ...prev, eligible: false, next_at: data.next_at, balance: (prev.balance || 0) + REWARD, pool: prev.pool - REWARD } : prev
@@ -89,51 +85,14 @@ export default function DailyPlunchClaim() {
       setPhase('sent');
     } catch (err) {
       setPhase('idle');
-      // Nothing was sent, so the drop goes back behind the share.
-      setShared(false);
-      setError(err?.response?.data?.error || 'The claim did not go through.');
+      setError(err?.response?.data?.error || 'The request did not go through.');
       load();
     } finally {
       inFlight.current = false;
     }
   }, [wallet?.address, load]);
 
-  // The share goes out through the device's own share sheet, so the drop can be
-  // posted to X, Telegram, WhatsApp or anywhere else installed. The drop is
-  // unlocked the moment the sheet opens: a phone can freeze this page while
-  // another app is in front of it and the share promise never resumes, so the
-  // return to the app is what actually sends the reward (see the effect below).
-  const shareDrop = useCallback(async () => {
-    if (inFlight.current || claimed.current || phase === 'claiming') return;
-    const { title, text, url } = dailyRewardShare({ amount: REWARD });
-    setShared(true);
-    setError('');
-    const result = await sharePayload({ title, text, url, toast });
-    if (result === 'cancelled' || result === 'failed') {
-      // The sheet was dismissed: the drop stays behind the share button.
-      setShared(false);
-      return;
-    }
-    claim();
-  }, [toast, claim, phase]);
-
-  useEffect(() => {
-    if (!shared || phase !== 'idle' || !status?.eligible) return;
-    // Coming back from the share sheet is the signal that the post went out,
-    // whether or not the share promise ever resumed.
-    const onReturn = () => {
-      if (document.visibilityState === 'visible') claim();
-    };
-    document.addEventListener('visibilitychange', onReturn);
-    window.addEventListener('focus', onReturn);
-    return () => {
-      document.removeEventListener('visibilitychange', onReturn);
-      window.removeEventListener('focus', onReturn);
-    };
-  }, [shared, phase, status?.eligible, claim]);
-
   const remaining = nextAt ? countdown(nextAt - now) : null;
-  const spinning = !wallet?.address || (status === null && phase === 'idle' && !error);
 
   let bodyNode;
   if (!wallet?.address) {
@@ -151,7 +110,7 @@ export default function DailyPlunchClaim() {
         </button>
       </>
     );
-  } else if (spinning) {
+  } else if (loading && !status) {
     bodyNode = (
       <p className="flex items-center gap-2 text-[12px] text-[#F2F7F4]/45">
         <Loader2 size={14} className="animate-spin" /> Checking your wallet…
@@ -192,34 +151,36 @@ export default function DailyPlunchClaim() {
       </p>
     );
   } else if (status?.eligible) {
-    bodyNode = shared ? (
-      <button
-        onClick={claim}
-        className="w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-      >
-        Claim {AMOUNT_LABEL} PLUNCH
-      </button>
-    ) : (
+    bodyNode = (
       <>
         <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#00F59B]">Today&apos;s drop is ready</p>
-        <p className="text-[11px] leading-snug text-[#F2F7F4]/55">
-          Share it anywhere to unlock your {AMOUNT_LABEL} PLUNCH. The drop is sent as soon as you share.
-        </p>
         <button
-          onClick={shareDrop}
-          className="mt-2 w-full h-[44px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[12px] tracking-[.08em] uppercase flex items-center justify-center gap-2 shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+          onClick={claim}
+          className="mt-2 w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
         >
-          <Share2 size={15} /> Share to claim
+          Request {AMOUNT_LABEL} PLUNCH
         </button>
       </>
     );
-  } else {
+  } else if (status) {
     bodyNode = (
       <>
         <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/40">Next drop in</p>
         <p className="font-mono text-[22px] leading-tight tracking-[.06em] text-[#F2F7F4]">
           {remaining || '00:00:00'}
         </p>
+      </>
+    );
+  } else {
+    bodyNode = (
+      <>
+        <p className="text-[12px] leading-snug text-[#F2F7F4]/60">Wallet check failed.</p>
+        <button
+          onClick={load}
+          className="mt-2 h-[38px] px-4 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] font-black text-[11px] tracking-[.08em] uppercase transition duration-200 hover:bg-[#00F59B]/20"
+        >
+          Try again
+        </button>
       </>
     );
   }
@@ -237,31 +198,17 @@ export default function DailyPlunchClaim() {
           </p>
         </div>
       </div>
-      {/* The drop's own ad: a share button sits beside the countdown so the
-          24-hour reward can be passed on at any time. */}
-      <div className="mt-3 flex items-center gap-2.5">
-        <div className="flex-1 min-w-0">
-          {phase === 'claiming' ? (
-            <button
-              disabled
-              className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
-            >
-              <Loader2 size={16} className="animate-spin" /> Sending…
-            </button>
-          ) : (
-            bodyNode
-          )}
-        </div>
-        <button
-          onClick={shareDrop}
-          disabled={phase === 'claiming'}
-          aria-label="Share the daily PLUNCH drop"
-          title="Share the daily drop"
-          className="w-[46px] h-[46px] shrink-0 rounded-[12px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex flex-col items-center justify-center gap-[2px] transition duration-200 hover:bg-[#00F59B]/20 hover:shadow-[0_0_14px_rgba(0,245,155,.45)] active:opacity-85 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-        >
-          <Share2 size={16} />
-          <span className="text-[8px] font-black uppercase tracking-[.06em]">Share</span>
-        </button>
+      <div className="mt-3">
+        {phase === 'claiming' ? (
+          <button
+            disabled
+            className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
+          >
+            <Loader2 size={16} className="animate-spin" /> Sending…
+          </button>
+        ) : (
+          bodyNode
+        )}
       </div>
       {error && <p className="mt-2 text-[11px] leading-snug text-[#FF4D6D]">{error}</p>}
     </div>
