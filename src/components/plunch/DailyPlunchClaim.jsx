@@ -48,10 +48,15 @@ export default function DailyPlunchClaim() {
         setPhase('idle');
         setTxHash('');
       }
-    } catch {
-      // A failed check must not leave the card spinning forever.
+    } catch (err) {
+      // A failed check must not leave the card spinning forever. A blocked
+      // server (402) is a service problem, not a problem with the wallet.
       setStatus(null);
-      setError('Could not check this wallet right now.');
+      setError(
+        err?.response?.status === 402
+          ? 'The daily drop is paused right now — the app server is not available on the current plan.'
+          : 'Could not check this wallet right now.'
+      );
     } finally {
       setLoading(false);
     }
@@ -174,7 +179,7 @@ export default function DailyPlunchClaim() {
   } else {
     bodyNode = (
       <>
-        <p className="text-[12px] leading-snug text-[#F2F7F4]/60">Wallet check failed.</p>
+        <p className="text-[12px] leading-snug text-[#F2F7F4]/60">Drop status unavailable.</p>
         <button
           onClick={load}
           className="mt-2 h-[38px] px-4 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] font-black text-[11px] tracking-[.08em] uppercase transition duration-200 hover:bg-[#00F59B]/20"
