@@ -19,7 +19,7 @@ import MarketTicker from '@/components/ticker/MarketTicker';
 import FlashNews from '@/components/FlashNews';
 import SettingsMenu from '@/components/settings/SettingsMenu';
 import HeaderAvatar from '@/components/settings/HeaderAvatar';
-import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
+import PlunchFaucet from '@/components/plunch/PlunchFaucet';
 import { resolveProfile } from '@/lib/profiles';
 
 const FAUCET_ENABLED = true;
@@ -195,10 +195,9 @@ export default function Home() {
           </div>
         </div>
       </section>
-      {/* Faucet paused: flip to true to bring the daily PLUNCH drop back. */}
       {FAUCET_ENABLED && (
         <div className="px-3.5 pt-3 animate-[sp-up_.6s_.25s_ease-out_both]">
-          <DailyPlunchClaim />
+          <PlunchFaucet />
         </div>
       )}
       {mode === 'nft' ? (
