@@ -177,16 +177,15 @@ export default function DailyPlunchClaim() {
       </>
     );
   } else {
+    // Status could not be read: the button still stands so the drop is one tap
+    // away, and whatever went wrong is reported underneath it.
     bodyNode = (
-      <>
-        <p className="text-[12px] leading-snug text-[#F2F7F4]/60">Drop status unavailable.</p>
-        <button
-          onClick={load}
-          className="mt-2 h-[38px] px-4 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] font-black text-[11px] tracking-[.08em] uppercase transition duration-200 hover:bg-[#00F59B]/20"
-        >
-          Try again
-        </button>
-      </>
+      <button
+        onClick={claim}
+        className="w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+      >
+        Request {AMOUNT_LABEL} PLUNCH
+      </button>
     );
   }
 

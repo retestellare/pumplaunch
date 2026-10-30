@@ -22,8 +22,7 @@ import HeaderAvatar from '@/components/settings/HeaderAvatar';
 import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
 import { resolveProfile } from '@/lib/profiles';
 
-// The daily PLUNCH drop needs the app server, which is currently unavailable.
-const FAUCET_ENABLED = false;
+const FAUCET_ENABLED = true;
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
