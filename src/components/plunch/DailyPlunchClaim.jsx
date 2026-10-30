@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
+import { loadAccount, hasTrustline } from '@/lib/stellar';
+import {
+  PLUNCH_CODE,
+  PLUNCH_ISSUER,
+  FAUCET_REWARD,
+  faucetDeployed,
+  fetchNextClaim,
+  claimPlunch,
+} from '@/lib/plunchFaucet';
 
-const REWARD = 90000;
-const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
+const AMOUNT_LABEL = FAUCET_REWARD.toLocaleString('en-US');
 const EXPLORER = 'https://stellar.expert/explorer/public/tx/';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -14,7 +21,8 @@ function countdown(ms) {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
-// The daily PLUNCH drop: one request per wallet every 24 hours.
+// The daily PLUNCH drop: the wallet signs its own claim and the faucet contract
+// keeps the 24-hour counter, so no app server is involved.
 export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
   const [status, setStatus] = useState(null);
@@ -26,41 +34,47 @@ export default function DailyPlunchClaim() {
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
 
+  const live = faucetDeployed();
+
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   const load = useCallback(async () => {
-    if (!wallet?.address) {
+    if (!wallet?.address || !live) {
       setStatus(null);
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const { data } = await base44.functions.invoke('plunchClaim', {
-        action: 'status',
-        wallet_address: wallet.address,
+      const account = await loadAccount(wallet.address);
+      const trustline = account ? hasTrustline(account, PLUNCH_CODE, PLUNCH_ISSUER) : false;
+      if (!trustline) {
+        setStatus({ trustline: false, eligible: false, next_at: null });
+        return;
+      }
+
+      // The contract's own counter decides, so the button unlocks on schedule
+      // even on a device that has never seen this wallet.
+      const nextAt = (await fetchNextClaim(wallet.address)) * 1000;
+      setStatus({
+        trustline: true,
+        eligible: nextAt <= Date.now(),
+        next_at: new Date(nextAt).toISOString(),
       });
-      setStatus(data);
-      if (data?.eligible) {
+      if (nextAt <= Date.now()) {
         setPhase('idle');
         setTxHash('');
       }
-    } catch (err) {
-      // A failed check must not leave the card spinning forever. A blocked
-      // server (402) is a service problem, not a problem with the wallet.
+    } catch {
       setStatus(null);
-      setError(
-        err?.response?.status === 402
-          ? 'The faucet payout is paused right now — the reward wallet is not reachable.'
-          : 'Could not check this wallet right now.'
-      );
+      setError('Could not reach the faucet contract right now.');
     } finally {
       setLoading(false);
     }
-  }, [wallet?.address]);
+  }, [wallet?.address, live]);
 
   useEffect(() => {
     load();
@@ -68,7 +82,7 @@ export default function DailyPlunchClaim() {
 
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
 
-  // When the 24 hours run out, the card asks the server again so the button
+  // When the 24 hours run out, the card asks the contract again so the button
   // unlocks on its own while the page stays open.
   useEffect(() => {
     if (!nextAt || now < nextAt || refreshedFor.current === nextAt) return;
@@ -82,17 +96,16 @@ export default function DailyPlunchClaim() {
     setPhase('claiming');
     setError('');
     try {
-      const { data } = await base44.functions.invoke('plunchClaim', { wallet_address: wallet.address });
-      setTxHash(data.tx_hash);
+      const { hash } = await claimPlunch(wallet.address);
+      setTxHash(hash);
+      const unlockedAt = Date.now() + 24 * 60 * 60 * 1000;
       setStatus((prev) =>
-        prev
-          ? { ...prev, eligible: false, next_at: data.next_at, balance: (prev.balance || 0) + REWARD, pool: prev.pool - REWARD }
-          : prev
+        prev ? { ...prev, eligible: false, next_at: new Date(unlockedAt).toISOString() } : prev
       );
       setPhase('sent');
     } catch (err) {
       setPhase('idle');
-      setError(err?.response?.data?.error || 'The request did not go through.');
+      setError(err?.message || 'The claim did not go through.');
       load();
     } finally {
       inFlight.current = false;
@@ -102,7 +115,13 @@ export default function DailyPlunchClaim() {
   const remaining = nextAt ? countdown(nextAt - now) : null;
 
   let bodyNode;
-  if (!wallet?.address) {
+  if (!live) {
+    bodyNode = (
+      <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
+        The faucet pool is being set up on-chain — the daily drop goes live as soon as it is funded.
+      </p>
+    );
+  } else if (!wallet?.address) {
     bodyNode = (
       <>
         <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
@@ -149,12 +168,6 @@ export default function DailyPlunchClaim() {
     bodyNode = (
       <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
         This wallet has no PLUNCH trustline yet. Add PLUNCH in your wallet to receive the daily drop.
-      </p>
-    );
-  } else if (status && status.pool < REWARD) {
-    bodyNode = (
-      <p className="text-[12px] leading-snug text-[#FF4D6D]">
-        The daily pool is empty right now. Try again once it is refilled.
       </p>
     );
   } else if (status?.eligible) {
