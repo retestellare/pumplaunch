@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, Copy, ExternalLink, Loader2 } from 'lucide-react';
+import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 
@@ -14,9 +14,6 @@ function countdown(ms) {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
-const CLAIM_BUTTON =
-  'w-full h-[48px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]';
-
 // The daily PLUNCH drop: one request per wallet every 24 hours.
 export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
@@ -25,7 +22,6 @@ export default function DailyPlunchClaim() {
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
   const [error, setError] = useState('');
   const [txHash, setTxHash] = useState('');
-  const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
@@ -103,124 +99,121 @@ export default function DailyPlunchClaim() {
     }
   }, [wallet?.address, load]);
 
-  const copyAddress = useCallback(async () => {
-    if (!wallet?.address) return;
-    try {
-      await navigator.clipboard.writeText(wallet.address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard blocked: the key is on screen to select */
-    }
-  }, [wallet?.address]);
-
   const remaining = nextAt ? countdown(nextAt - now) : null;
 
-  let actionNode;
+  let bodyNode;
   if (!wallet?.address) {
-    actionNode = (
-      <button onClick={connect} disabled={connecting} className={`${CLAIM_BUTTON} disabled:opacity-60`}>
-        {connecting ? 'Connecting…' : 'Connect wallet'}
-      </button>
-    );
-  } else if (phase === 'claiming') {
-    actionNode = (
-      <button
-        disabled
-        className="w-full h-[48px] rounded-[12px] border border-[#00F59B]/30 bg-[#16211E] text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
-      >
-        <Loader2 size={16} className="animate-spin" /> Claiming…
-      </button>
-    );
-  } else if (phase === 'sent') {
-    actionNode = (
-      <div className="rounded-[12px] border border-[#00F59B]/45 bg-[#00F59B]/[.10] p-3">
-        <p className="flex items-start gap-2 text-[12.5px] font-bold text-[#F2F7F4]">
-          <CheckCircle2 size={16} className="mt-[1px] shrink-0 text-[#00F59B]" />
-          Successfully claimed {AMOUNT_LABEL} PLUNCH!
+    bodyNode = (
+      <>
+        <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
+          Connect a wallet holding PLUNCH to collect today&apos;s drop.
         </p>
-        <div className="mt-2 flex items-center gap-3 pl-6">
-          <a
-            href={`${EXPLORER}${txHash}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] font-bold text-[#00F59B] transition duration-200 hover:text-[#7CFFD0]"
-          >
-            View transaction <ExternalLink size={11} />
-          </a>
-          {remaining && <span className="text-[11px] text-[#F2F7F4]/45">Next in {remaining}</span>}
-        </div>
-      </div>
+        <button
+          onClick={connect}
+          disabled={connecting}
+          className="mt-2.5 w-full h-[44px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[12px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.45)] transition duration-200 hover:shadow-[0_0_26px_rgba(0,245,155,.65)] active:opacity-85 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+        >
+          {connecting ? 'Connecting…' : 'Connect wallet'}
+        </button>
+      </>
     );
   } else if (loading && !status) {
-    actionNode = (
-      <button
-        disabled
-        className="w-full h-[48px] rounded-[12px] border border-[#16211E] bg-[#16211E] text-[#F2F7F4]/60 font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
-      >
-        <Loader2 size={16} className="animate-spin" /> Checking wallet…
-      </button>
+    bodyNode = (
+      <p className="flex items-center gap-2 text-[12px] text-[#F2F7F4]/45">
+        <Loader2 size={14} className="animate-spin" /> Checking your wallet…
+      </p>
+    );
+  } else if (phase === 'sent') {
+    bodyNode = (
+      <>
+        <p className="flex items-start gap-2 text-[12px] font-bold text-[#00F59B]">
+          <Check size={15} className="mt-[1px] shrink-0" />
+          Sent — {AMOUNT_LABEL} PLUNCH landed in your wallet.
+        </p>
+        <a
+          href={`${EXPLORER}${txHash}`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#F2F7F4]/50 transition duration-200 hover:text-[#00F59B]"
+        >
+          View transaction <ExternalLink size={12} />
+        </a>
+        {remaining && (
+          <p className="mt-2 text-[11px] text-[#F2F7F4]/45">
+            Next drop in <span className="font-mono text-[#F2F7F4]/70">{remaining}</span>
+          </p>
+        )}
+      </>
     );
   } else if (status?.trustline === false) {
-    actionNode = (
+    bodyNode = (
       <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
         This wallet has no PLUNCH trustline yet. Add PLUNCH in your wallet to receive the daily drop.
       </p>
     );
   } else if (status && status.pool < REWARD) {
-    actionNode = (
+    bodyNode = (
       <p className="text-[12px] leading-snug text-[#FF4D6D]">
         The daily pool is empty right now. Try again once it is refilled.
       </p>
     );
   } else if (status?.eligible) {
-    actionNode = (
-      <button onClick={claim} className={CLAIM_BUTTON}>
-        Claim {AMOUNT_LABEL} PLUNCH
-      </button>
+    bodyNode = (
+      <>
+        <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#00F59B]">Today&apos;s drop is ready</p>
+        <button
+          onClick={claim}
+          className="mt-2 w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+        >
+          Request {AMOUNT_LABEL} PLUNCH
+        </button>
+      </>
     );
   } else if (status) {
-    actionNode = (
-      <button
-        disabled
-        className="w-full h-[48px] rounded-[12px] border border-[#16211E] bg-[#16211E] text-[#F2F7F4]/45 font-black text-[12px] tracking-[.08em] uppercase"
-      >
-        Next claim in {remaining || '00:00:00'}
-      </button>
+    bodyNode = (
+      <>
+        <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/40">Next drop in</p>
+        <p className="font-mono text-[22px] leading-tight tracking-[.06em] text-[#F2F7F4]">
+          {remaining || '00:00:00'}
+        </p>
+      </>
     );
   } else {
-    // Status could not be read: the button still stands so the drop is one tap
-    // away, and whatever went wrong is reported underneath it.
-    actionNode = (
-      <button onClick={claim} className={CLAIM_BUTTON}>
-        Claim {AMOUNT_LABEL} PLUNCH
+    bodyNode = (
+      <button
+        onClick={claim}
+        className="w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+      >
+        Request {AMOUNT_LABEL} PLUNCH
       </button>
     );
   }
 
   return (
-    <div className="rounded-[16px] border border-[#16211E] bg-[#101816] p-4">
-      <p className="font-display text-[15px] tracking-[.04em] text-[#F2F7F4]">Claim Tokens</p>
-
-      <p className="mt-3 text-[9px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/40">
-        Your Stellar public key
-      </p>
-      <div className="mt-1.5 flex items-center gap-2 h-[46px] rounded-[12px] border border-[#1E2A26] bg-[#0C1512] px-3">
-        <span className={`flex-1 min-w-0 truncate font-mono text-[11px] ${wallet?.address ? 'text-[#F2F7F4]/80' : 'text-[#F2F7F4]/35'}`}>
-          {wallet?.address || 'Connect a wallet to continue'}
+    <div className="rounded-[16px] border border-[#00F59B]/25 bg-[linear-gradient(135deg,#101a17,#101816)] p-3.5 shadow-[0_0_24px_rgba(0,245,155,.09)]">
+      <div className="flex items-center gap-3">
+        <span className="w-10 h-10 rounded-[12px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex items-center justify-center shrink-0">
+          <Rocket size={19} />
         </span>
-        {wallet?.address && (
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/45">Daily PLUNCH drop</p>
+          <p className="font-display text-[19px] leading-tight text-[#00F59B] [text-shadow:0_0_14px_rgba(0,245,155,.45)]">
+            {AMOUNT_LABEL} PLUNCH
+          </p>
+        </div>
+      </div>
+      <div className="mt-3">
+        {phase === 'claiming' ? (
           <button
-            onClick={copyAddress}
-            aria-label="Copy public key"
-            className="text-[#F2F7F4]/45 transition duration-200 hover:text-[#00F59B]"
+            disabled
+            className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
           >
-            {copied ? <Check size={15} className="text-[#00F59B]" /> : <Copy size={15} />}
+            <Loader2 size={16} className="animate-spin" /> Sending…
           </button>
+        ) : (
+          bodyNode
         )}
       </div>
-
-      <div className="mt-3">{actionNode}</div>
       {error && <p className="mt-2 text-[11px] leading-snug text-[#FF4D6D]">{error}</p>}
     </div>
   );
