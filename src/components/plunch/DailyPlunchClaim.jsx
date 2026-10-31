@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { base44 } from '@/api/base44Client';
 import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
 import { useWallet } from '@/lib/wallet';
-import { loadAccount, hasTrustline } from '@/lib/stellar';
-import {
-  PLUNCH_CODE,
-  PLUNCH_ISSUER,
-  FAUCET_REWARD,
-  faucetDeployed,
-  fetchNextClaim,
-  claimPlunch,
-} from '@/lib/plunchFaucet';
 
-const AMOUNT_LABEL = FAUCET_REWARD.toLocaleString('en-US');
+const REWARD = 90000;
+const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
 const EXPLORER = 'https://stellar.expert/explorer/public/tx/';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -21,8 +14,18 @@ function countdown(ms) {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
-// The daily PLUNCH drop: the wallet signs its own claim and the faucet contract
-// keeps the 24-hour counter, so no app server is involved.
+// The app's funded wallet sends the PLUNCH; the claim record it writes is what
+// keeps the 24-hour rule per wallet.
+async function invoke(payload) {
+  try {
+    const res = await base44.functions.invoke('plunchClaim', payload);
+    return { data: res?.data ?? res, error: null };
+  } catch (err) {
+    const data = err?.response?.data;
+    return { data, error: data?.error || err?.message || 'The faucet did not answer.' };
+  }
+}
+
 export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
   const [status, setStatus] = useState(null);
@@ -34,47 +37,26 @@ export default function DailyPlunchClaim() {
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
 
-  const live = faucetDeployed();
-
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   const load = useCallback(async () => {
-    if (!wallet?.address || !live) {
+    if (!wallet?.address) {
       setStatus(null);
       return;
     }
     setLoading(true);
     setError('');
-    try {
-      const account = await loadAccount(wallet.address);
-      const trustline = account ? hasTrustline(account, PLUNCH_CODE, PLUNCH_ISSUER) : false;
-      if (!trustline) {
-        setStatus({ trustline: false, eligible: false, next_at: null });
-        return;
-      }
-
-      // The contract's own counter decides, so the button unlocks on schedule
-      // even on a device that has never seen this wallet.
-      const nextAt = (await fetchNextClaim(wallet.address)) * 1000;
-      setStatus({
-        trustline: true,
-        eligible: nextAt <= Date.now(),
-        next_at: new Date(nextAt).toISOString(),
-      });
-      if (nextAt <= Date.now()) {
-        setPhase('idle');
-        setTxHash('');
-      }
-    } catch {
-      setStatus(null);
-      setError('Could not reach the faucet contract right now.');
-    } finally {
-      setLoading(false);
-    }
-  }, [wallet?.address, live]);
+    const { data, error: failure } = await invoke({
+      action: 'status',
+      wallet_address: wallet.address,
+    });
+    setStatus(data && !failure ? data : null);
+    if (failure) setError(failure);
+    setLoading(false);
+  }, [wallet?.address]);
 
   useEffect(() => {
     load();
@@ -82,8 +64,8 @@ export default function DailyPlunchClaim() {
 
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
 
-  // When the 24 hours run out, the card asks the contract again so the button
-  // unlocks on its own while the page stays open.
+  // When the 24 hours run out, the card asks again so the button unlocks on its
+  // own while the page stays open.
   useEffect(() => {
     if (!nextAt || now < nextAt || refreshedFor.current === nextAt) return;
     refreshedFor.current = nextAt;
@@ -95,33 +77,29 @@ export default function DailyPlunchClaim() {
     inFlight.current = true;
     setPhase('claiming');
     setError('');
-    try {
-      const { hash } = await claimPlunch(wallet.address);
-      setTxHash(hash);
-      const unlockedAt = Date.now() + 24 * 60 * 60 * 1000;
+    const { data, error: failure } = await invoke({
+      action: 'claim',
+      wallet_address: wallet.address,
+    });
+    if (failure) {
+      setPhase('idle');
+      setError(failure);
+      load();
+    } else {
+      setTxHash(data?.tx_hash || '');
+      const unlockedAt = data?.next_at ? new Date(data.next_at).toISOString() : null;
       setStatus((prev) =>
-        prev ? { ...prev, eligible: false, next_at: new Date(unlockedAt).toISOString() } : prev
+        prev ? { ...prev, eligible: false, next_at: unlockedAt } : prev
       );
       setPhase('sent');
-    } catch (err) {
-      setPhase('idle');
-      setError(err?.message || 'The claim did not go through.');
-      load();
-    } finally {
-      inFlight.current = false;
     }
+    inFlight.current = false;
   }, [wallet?.address, load]);
 
   const remaining = nextAt ? countdown(nextAt - now) : null;
 
   let bodyNode;
-  if (!live) {
-    bodyNode = (
-      <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
-        The faucet pool is being set up on-chain — the daily drop goes live as soon as it is funded.
-      </p>
-    );
-  } else if (!wallet?.address) {
+  if (!wallet?.address) {
     bodyNode = (
       <>
         <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
@@ -149,14 +127,16 @@ export default function DailyPlunchClaim() {
           <Check size={15} className="mt-[1px] shrink-0" />
           Sent — {AMOUNT_LABEL} PLUNCH landed in your wallet.
         </p>
-        <a
-          href={`${EXPLORER}${txHash}`}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#F2F7F4]/50 transition duration-200 hover:text-[#00F59B]"
-        >
-          View transaction <ExternalLink size={12} />
-        </a>
+        {txHash && (
+          <a
+            href={`${EXPLORER}${txHash}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#F2F7F4]/50 transition duration-200 hover:text-[#00F59B]"
+          >
+            View transaction <ExternalLink size={12} />
+          </a>
+        )}
         {remaining && (
           <p className="mt-2 text-[11px] text-[#F2F7F4]/45">
             Next drop in <span className="font-mono text-[#F2F7F4]/70">{remaining}</span>
@@ -194,10 +174,10 @@ export default function DailyPlunchClaim() {
   } else {
     bodyNode = (
       <button
-        onClick={claim}
-        className="w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+        onClick={load}
+        className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[12px] tracking-[.08em] uppercase transition duration-200 hover:shadow-[0_0_16px_rgba(0,245,155,.45)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
       >
-        Request {AMOUNT_LABEL} PLUNCH
+        Check my eligibility
       </button>
     );
   }

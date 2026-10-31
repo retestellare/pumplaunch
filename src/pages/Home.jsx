@@ -22,8 +22,7 @@ import HeaderAvatar from '@/components/settings/HeaderAvatar';
 import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
 import { resolveProfile } from '@/lib/profiles';
 
-// Switched off until the faucet pool is funded. Turn back on to show it again.
-const FAUCET_ENABLED = false;
+const FAUCET_ENABLED = true;
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
