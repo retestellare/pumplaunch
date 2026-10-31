@@ -22,6 +22,12 @@ async function invoke(payload) {
     return { data: res?.data ?? res, error: null };
   } catch (err) {
     const data = err?.response?.data;
+    if (err?.response?.status === 402 || err?.status === 402) {
+      return {
+        data: null,
+        error: 'Daily drops are temporarily unavailable. The app owner needs to restore access to the payout service.',
+      };
+    }
     return { data, error: data?.error || err?.message || 'The faucet did not answer.' };
   }
 }
@@ -84,7 +90,7 @@ export default function DailyPlunchClaim() {
     if (failure) {
       setPhase('idle');
       setError(failure);
-      load();
+      setStatus(null);
     } else {
       setTxHash(data?.tx_hash || '');
       const unlockedAt = data?.next_at ? new Date(data.next_at).toISOString() : null;
