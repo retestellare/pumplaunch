@@ -1,5 +1,7 @@
 // Sharing through the Web Share API: phones get their own native share sheet,
-// and anywhere it isn't available the message is copied to the clipboard.
+// and anywhere it isn't available the app opens its own share picker.
+import { openShareSheet } from '@/lib/shareSheet';
+
 export const APP_NAME = 'Stellar Pump';
 
 export function canWebShare() {
@@ -67,16 +69,6 @@ export function launchShare({ id, symbol, name }) {
   };
 }
 
-// The daily drop is the app's own ad: the share that unlocks the reward also
-// tells the timeline that free PLUNCH lands every 24 hours.
-export function dailyRewardShare({ amount = 90000 } = {}) {
-  return {
-    title: `Free $PLUNCH every day on ${APP_NAME}`,
-    text: `🎁 Claim ${amount.toLocaleString('en-US')} $PLUNCH free every 24 hours on ${APP_NAME} — launch and trade memecoins on Stellar.`,
-    url: absoluteUrl('/'),
-  };
-}
-
 export function postShare({ post, author }) {
   const body = (post?.content || '').trim();
   const snippet = body.length > 140 ? `${body.slice(0, 139).trimEnd()}…` : body;
@@ -88,26 +80,32 @@ export function postShare({ post, author }) {
   };
 }
 
-// Returns 'shared' | 'copied' | 'cancelled' | 'failed' so callers can decide
-// whether a follow-up message is needed.
-// `imageFile` (the token's generated preview card) rides along when the device
-// can share files, so the unique visual goes out with the message.
-export async function sharePayload({ title, text, url, imageFile, toast }) {
-  if (canWebShare()) {
-    try {
-      const files = imageFile ? [imageFile] : null;
-      if (files && navigator.canShare?.({ files })) {
-        await navigator.share({ title, text: `${text} ${url}`, files });
-        return 'shared';
-      }
-      await navigator.share({ title, text, url });
+// Hands the message to the device's own share sheet.
+// Returns 'shared' | 'cancelled' | 'failed'; `imageFile` (a generated preview
+// card, mint artwork) rides along when the device can share files.
+export async function nativeShare({ title, text, url, imageFile }) {
+  if (!canWebShare()) return 'failed';
+  try {
+    const files = imageFile ? [imageFile] : null;
+    if (files && navigator.canShare?.({ files })) {
+      await navigator.share({ title, text: `${text} ${url}`, files });
       return 'shared';
-    } catch (e) {
-      if (e?.name === 'AbortError') return 'cancelled';
-      // Anything else (unsupported payload, share blocked) falls back to copying.
     }
+    await navigator.share({ title, text, url });
+    return 'shared';
+  } catch (e) {
+    return e?.name === 'AbortError' ? 'cancelled' : 'failed';
   }
-  return copyShare({ text, url, toast });
+}
+
+// Returns 'shared' | 'cancelled' | 'sheet' so callers can decide whether a
+// follow-up message is needed. With no device sheet (or one that refuses the
+// payload) the app's own picker opens instead of silently copying.
+export async function sharePayload({ title, text, url, imageFile }) {
+  const outcome = await nativeShare({ title, text, url, imageFile });
+  if (outcome !== 'failed') return outcome;
+  openShareSheet({ title, text, url, imageFile });
+  return 'sheet';
 }
 
 // Which edition a purchase claimed, so the post and the UI agree on the number.
@@ -175,4 +173,15 @@ export async function copyShare({ text, url, toast }) {
     toast?.({ title: 'Could not share', description: 'Copy the link from your browser instead.', variant: 'destructive' });
     return 'failed';
   }
+}
+
+// The daily free drop is public proof the platform pays out, so the receipt is
+// written to be posted as-is.
+export function plunchDropShare({ amount }) {
+  const label = (parseFloat(amount) || 0).toLocaleString('en-US');
+  return {
+    title: `Free ${label} PLUNCH drop`,
+    text: `🚀 Just collected ${label} free PLUNCH from the daily drop on ${APP_NAME}. Claim yours every 24 hours.`,
+    url: absoluteUrl('/'),
+  };
 }

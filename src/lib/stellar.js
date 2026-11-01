@@ -904,28 +904,6 @@ export function buildXlmToUsdcSwapTransaction({ sourceAccount, xlmAmount, minUsd
   return tx.setTimeout(300).build();
 }
 
-// An asset as the ledger itself reports it: the amount in circulation and how
-// many wallets hold a trustline for it. Null means Stellar has no such code and
-// issuer pair — the check that tells an external listing apart from a typo.
-export async function fetchIssuedAsset(assetCode, issuer) {
-  const data = await horizonJsonSafe(
-    `/assets?asset_code=${encodeURIComponent(assetCode)}&asset_issuer=${encodeURIComponent(issuer)}&limit=1`,
-    60000
-  );
-  const record = data?._embedded?.records?.[0];
-  if (!record) return null;
-  // Horizon reports trustline balances under `balances` and the number of
-  // holding wallets under `accounts`; older spelling kept as a fallback.
-  const balances = record.balances || {};
-  const supply =
-    (parseFloat(balances.authorized) || 0) + (parseFloat(balances.authorized_to_maintain_liabilities) || 0);
-  return {
-    supply: supply || parseFloat(record.amount) || 0,
-    accounts: record.accounts?.authorized ?? record.num_accounts ?? 0,
-    toml: record._links?.toml?.href || record.toml_url || '',
-  };
-}
-
 export async function fetchAssetStats(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0, limit = 50 } = {}) {
   const [holdersData, ...tradeSets] = await Promise.all([
     horizonJsonSafe(`/accounts?asset=${assetCode}:${issuer}&limit=200`),
@@ -1072,27 +1050,7 @@ export function estimateTradeCost(side, { needsUsdcTrustline = false } = {}) {
   return { feeXlm, reserveXlm, operations: ops };
 }
 
-// An issuer may write the artwork as a full URL, as a bare host, or as a path
-// on its own domain — all three have to become something an image can load.
-function absoluteLogo(value, base) {
-  if (!value) return null;
-  const v = value.trim();
-  if (/^https?:\/\//i.test(v)) return v;
-  if (v.startsWith('//')) return `https:${v}`;
-  if (v.startsWith('/')) {
-    try {
-      return new URL(v, base).toString();
-    } catch {
-      return null;
-    }
-  }
-  return `https://${v}`;
-}
-
-// Issuers publish a currency as either the SEP-1 long spellings
-// (CURRENCY_CODE/CURRENCY_LOGO) or the short ones used by most Stellar tooling
-// (code/name/image), so both are read.
-function parseTomlCurrency(toml, code, base) {
+function parseTomlCurrency(toml, code) {
   const lines = toml.split('\n');
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim() === '[[CURRENCIES]]') {
@@ -1105,16 +1063,12 @@ function parseTomlCurrency(toml, code, base) {
         const eqIdx = l.indexOf('=');
         if (eqIdx === -1) continue;
         const key = l.substring(0, eqIdx).trim().toUpperCase();
-        const val = l
-          .substring(eqIdx + 1)
-          .trim()
-          .replace(/^["']|["']$/g, '')
-          .trim();
-        if (key === 'CURRENCY_CODE' || key === 'CODE') blockCode = val;
-        else if (key === 'CURRENCY_LOGO' || key === 'IMAGE' || key === 'LOGO') logo = val;
-        else if (key === 'CURRENCY_NAME' || key === 'NAME') name = val;
+        const val = l.substring(eqIdx + 1).replace(/"/g, '').trim();
+        if (key === 'CURRENCY_CODE') blockCode = val;
+        else if (key === 'CURRENCY_LOGO') logo = val;
+        else if (key === 'CURRENCY_NAME') name = val;
       }
-      if (blockCode === code) return { logo: absoluteLogo(logo, base), name };
+      if (blockCode === code) return { logo, name };
     }
   }
   return null;
@@ -1149,7 +1103,7 @@ export async function fetchTokenMetadata(assetCode, issuer) {
       const tomlRes = await fetchWithTimeout(tomlUrl, 5000);
       if (tomlRes.ok) {
         const toml = await tomlRes.text();
-        const parsed = parseTomlCurrency(toml, assetCode, base);
+        const parsed = parseTomlCurrency(toml, assetCode);
         if (parsed) {
           logo = parsed.logo;
           name = parsed.name;

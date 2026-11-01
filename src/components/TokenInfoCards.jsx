@@ -24,9 +24,6 @@ export default function TokenInfoCards({ token, stats, market }) {
   const curve = CURVE_PRESETS[token.curve] || CURVE_PRESETS.slow;
   const supply = token.supply || 0;
   const liqPct = token.liquidity_percent != null ? token.liquidity_percent : 100;
-  // An imported asset was created elsewhere: it has no launch method and no
-  // curve of ours to describe.
-  const imported = !!token.is_imported;
 
   const pool = market?.pool || null;
   const book = market?.book || null;
@@ -50,17 +47,14 @@ export default function TokenInfoCards({ token, stats, market }) {
           }
           sub={change24h == null ? 'Needs two fills in 24h' : null}
         />
-        <Row
-          label="Launch Method"
-          value={imported ? 'Imported asset' : token.is_auto_pool ? 'Auto-Pool' : 'Bonding Curve'}
-        />
+        <Row label="Launch Method" value={token.is_auto_pool ? 'Auto-Pool' : 'Bonding Curve'} />
         <Row
           label="Markets"
           value={poolQuotes.length ? poolQuotes.map((q) => (q === 'usdc' ? 'USDC' : 'XLM')).join(' + ') : '—'}
         />
         <Row label="Total Supply" value={`${fmt(supply, 0)} ${token.symbol}`} />
-        {!imported && <Row label="Liquidity Allocated" value={`${liqPct}%`} />}
-        {!imported && !token.is_auto_pool && (
+        <Row label="Liquidity Allocated" value={`${liqPct}%`} />
+        {!token.is_auto_pool && (
           <div className="pt-1">
             <div className="text-xs text-white/40 mb-1">Price Curve</div>
             <div className="text-sm font-bold">{curve.label}</div>

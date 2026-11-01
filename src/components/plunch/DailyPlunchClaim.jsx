@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
 import { useWallet } from '@/lib/wallet';
+import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
 
 const REWARD = 90000;
 const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
@@ -22,12 +23,6 @@ async function invoke(payload) {
     return { data: res?.data ?? res, error: null };
   } catch (err) {
     const data = err?.response?.data;
-    if (err?.response?.status === 402 || err?.status === 402) {
-      return {
-        data: null,
-        error: 'Daily drops are temporarily unavailable. The app owner needs to restore access to the payout service.',
-      };
-    }
     return { data, error: data?.error || err?.message || 'The faucet did not answer.' };
   }
 }
@@ -102,7 +97,10 @@ export default function DailyPlunchClaim() {
     inFlight.current = false;
   }, [wallet?.address, load]);
 
-  const remaining = nextAt ? countdown(nextAt - now) : null;
+  // A lock that has already run out is not a countdown: it means the status on
+  // screen is stale, so the card asks again instead of sitting on 00:00:00.
+  const remaining = nextAt > now ? countdown(nextAt - now) : null;
+  const poolShort = status?.pool != null && status.pool < REWARD;
 
   let bodyNode;
   if (!wallet?.address) {
@@ -143,6 +141,7 @@ export default function DailyPlunchClaim() {
             View transaction <ExternalLink size={12} />
           </a>
         )}
+        <ShareReceiptButton amount={REWARD} className="mt-2 w-full justify-center h-[36px] text-[11px]" />
         {remaining && (
           <p className="mt-2 text-[11px] text-[#F2F7F4]/45">
             Next drop in <span className="font-mono text-[#F2F7F4]/70">{remaining}</span>
@@ -169,12 +168,25 @@ export default function DailyPlunchClaim() {
       </>
     );
   } else if (status) {
-    bodyNode = (
+    bodyNode = remaining ? (
       <>
         <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/40">Next drop in</p>
-        <p className="font-mono text-[22px] leading-tight tracking-[.06em] text-[#F2F7F4]">
-          {remaining || '00:00:00'}
+        <p className="font-mono text-[22px] leading-tight tracking-[.06em] text-[#F2F7F4]">{remaining}</p>
+        <ShareReceiptButton amount={REWARD} className="mt-2 w-full justify-center h-[36px] text-[11px]" />
+      </>
+    ) : (
+      <>
+        <p className="text-[11px] leading-snug text-[#F2F7F4]/55">
+          {poolShort
+            ? 'The daily PLUNCH pool is refilling — no drop available right now.'
+            : 'No drop is open for this wallet right now.'}
         </p>
+        <button
+          onClick={load}
+          className="mt-2 w-full h-[38px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[11px] tracking-[.08em] uppercase transition duration-200 hover:shadow-[0_0_16px_rgba(0,245,155,.45)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+        >
+          Check again
+        </button>
       </>
     );
   } else {

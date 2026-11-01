@@ -20,6 +20,7 @@ import ManageAsset from '@/pages/ManageAsset';
 import Rewards from '@/pages/Rewards';
 import RewardsAdmin from '@/pages/RewardsAdmin';
 import RewardTracker from '@/components/RewardTracker';
+import ShareSheetHost from '@/components/share/ShareSheetHost';
 
 // Detail pages slide in from the side you travelled from.
 const slide = {
@@ -75,6 +76,7 @@ function App() {
             {/* Credits an incoming referral link to the inviter's wallet. */}
             <RewardTracker />
             <AppRoutes />
+            <ShareSheetHost />
           </WalletProvider>
         </Router>
         <Toaster />

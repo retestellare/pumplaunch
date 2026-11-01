@@ -19,10 +19,9 @@ import MarketTicker from '@/components/ticker/MarketTicker';
 import FlashNews from '@/components/FlashNews';
 import SettingsMenu from '@/components/settings/SettingsMenu';
 import HeaderAvatar from '@/components/settings/HeaderAvatar';
-import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
+import NotificationBell from '@/components/notifications/NotificationBell';
 import { resolveProfile } from '@/lib/profiles';
-
-const FAUCET_ENABLED = true;
+import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
@@ -138,6 +137,7 @@ export default function Home() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <NotificationBell />
               <Link
                 to="/rewards"
                 aria-label="Rewards"
@@ -195,7 +195,7 @@ export default function Home() {
           </div>
         </div>
       </section>
-      {FAUCET_ENABLED && (
+      {mode === 'coins' && (
         <div className="px-3.5 pt-3 animate-[sp-up_.6s_.25s_ease-out_both]">
           <DailyPlunchClaim />
         </div>
