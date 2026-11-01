@@ -76,7 +76,7 @@
     "tokens_per_quote": {
       "type": "number"
     },
-    "lock_balance_id": {
+    "lock_account": {
       "type": "string"
     },
     "pools": {

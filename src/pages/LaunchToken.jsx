@@ -49,14 +49,20 @@ import {
   saveAttempt,
   clearAttempt,
   getIssuerSecret,
+  getVaultSecret,
+  setVaultSecret,
 } from '@/lib/launchAttempts';
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
 import LockedLiquidityForm from '@/components/launch/LockedLiquidityForm';
 import {
   planLockedLaunch,
-  buildLockSharesTransaction,
-  waitForPoolShares,
-  claimableBalanceId,
+  vaultFunding,
+  newVaultKeypair,
+  buildVaultCreationTransaction,
+  buildVaultTrustTransaction,
+  buildVaultFundingTransfer,
+  buildVaultDepositAndLockTransaction,
+  readVaultState,
 } from '@/lib/lockedLiquidity';
 import { ImagePlus } from 'lucide-react';
 
@@ -95,23 +101,35 @@ function usdcBalance(account) {
 }
 
 function analyzeStall(attempt, availableXlm, xlmPerUsdc = 0) {
+  const locked = attempt.launch_model === 'locked';
   const curvePreset = CURVE_PRESETS[attempt.curve] || CURVE_PRESETS.slow;
   const plan = planPoolLaunch({
     poolType: attempt.pool_type || 'xlm',
-    input: attempt.initial_liquidity,
+    input: locked ? '' : attempt.initial_liquidity,
     xlmPerUsdc,
   });
   const cost = estimateLaunchCost({
-    liquidityPercent: attempt.liquidity,
+    liquidityPercent: locked ? 0 : attempt.liquidity,
     rungs: curvePreset.rungs,
-    autoPool: attempt.auto_pool,
-    hasInitialLiquidity: !!(attempt.initial_liquidity && parseFloat(attempt.initial_liquidity) >= 10),
-    poolCount: plan.quotes.length,
-    needsUsdcTrustline: plan.quotes.includes('usdc'),
+    autoPool: attempt.auto_pool || locked,
+    hasInitialLiquidity: locked || !!(attempt.initial_liquidity && parseFloat(attempt.initial_liquidity) >= 10),
+    poolCount: locked ? 1 : plan.quotes.length,
+    needsUsdcTrustline: !locked && plan.quotes.includes('usdc'),
   });
-  const poolDeposit = (parseFloat(plan.deposits.xlm) || 0) + (plan.swapXlm || 0);
+  const lockedQuote = attempt.locked_quote === 'usdc' ? 'usdc' : 'xlm';
+  const lockedDeposit = parseFloat(attempt.locked_deposit) || 0;
+  const poolDeposit = locked
+    ? lockedQuote === 'xlm'
+      ? lockedDeposit
+      : 0
+    : (parseFloat(plan.deposits.xlm) || 0) + (plan.swapXlm || 0);
   const issuerReserve = attempt.issuer_public_key ? 0 : cost.issuerReserveXlm;
-  const required = issuerReserve + poolDeposit + cost.feeXlm + cost.reserveXlm;
+  const required =
+    issuerReserve +
+    poolDeposit +
+    cost.feeXlm +
+    cost.reserveXlm +
+    (locked ? vaultFunding(0, lockedQuote) : 0);
   const insufficient = availableXlm != null && availableXlm < required;
   let reason = attempt.error;
   if (!reason) reason = insufficient ? 'Insufficient XLM to finish the launch.' : 'Launch was interrupted. Resume to continue from where it stopped.';
@@ -537,58 +555,113 @@ export default function LaunchToken() {
         setStepStatus('liquidity', 'done');
       } else if (isLocked) {
         const quote = store.locked_quote === 'usdc' ? 'usdc' : 'xlm';
-        const p3 = await verifyLaunchProgress({
-          walletAddress: wallet.address,
-          issuerPublicKey: store.issuer_public_key,
-          assetCode: sym,
-          isAutoPool: true,
-          quotes: [quote],
-        });
-        if (!p3.liquidityExists) {
-          setWaiting(true);
-          try {
-            setStage('liquidity', 'Depositing locked liquidity…');
+        const deposit = parseFloat(store.locked_deposit) || 0;
+        const tokenHalf = parseFloat(store.vault_tokens) || 0;
+
+        // The vault is its own account: it receives the deposit and the matched
+        // half of the supply, deposits them into the pool, and loses its only
+        // signer in the same transaction. Nobody can withdraw the liquidity after.
+        if (!store.vault_public_key) {
+          const vaultKp = newVaultKeypair();
+          store.vault_public_key = vaultKp.publicKey();
+          setVaultSecret(wallet.address, sym, vaultKp.secret());
+          saveAttempt(store);
+          setAttempt({ ...store });
+        }
+        const vaultSecret = getVaultSecret(wallet.address, sym);
+        if (!vaultSecret) {
+          const err = new Error(
+            "This launch's vault was created on another device. Finish the lock on that device."
+          );
+          await failStep(store, 'liquidity', err);
+          throw err;
+        }
+        const vault = keypairFromSecret(vaultSecret);
+        const vaultAddress = vault.publicKey();
+        const vaultArgs = { vaultAddress, assetCode: sym, issuer: store.issuer_public_key, quote };
+
+        setWaiting(true);
+        try {
+          let state = await readVaultState(vaultArgs);
+
+          if (!state.exists) {
+            setStage('liquidity', 'Opening the locked vault…');
             await submitWithRetry(
               async () => {
                 const userAccount = await loadAccount(wallet.address);
-                return buildPoolSetupTransaction({
+                return buildVaultCreationTransaction({
                   sourceAccount: userAccount,
-                  assetCode: sym,
-                  issuer: store.issuer_public_key,
-                  quote,
-                  quoteAmount: store.locked_deposit,
-                  tokenAmount: store.vault_tokens,
+                  vaultAddress,
+                  startingBalance: vaultFunding(deposit, quote),
                 });
               },
               signAndSubmit,
               {
                 onRetry: (i, max) => {
                   setRetrying(true);
-                  setStage('liquidity', `Retrying the deposit (${i}/${max})…`);
+                  setStage('liquidity', `Retrying the vault (${i}/${max})…`);
                 },
-                verify: async () => !!(await fetchPoolFor(sym, store.issuer_public_key, quote)),
               }
             );
+            await pollForAccount(vaultAddress);
+            state = await readVaultState(vaultArgs);
+          }
 
-            // The shares leave the wallet into a balance that can never be
-            // claimed, which is what makes the liquidity unwithdrawable.
-            setStage('liquidity', 'Locking the liquidity forever…');
-            const shares = await waitForPoolShares(wallet.address, sym, store.issuer_public_key, quote);
-            if (!(parseFloat(shares) > 0)) {
-              throw new Error('The pool did not confirm yet. Resume to finish locking the liquidity.');
-            }
-            const lockResult = await submitWithRetry(
+          if (!state.hasTokenTrustline || !state.hasPoolTrustline || !state.hasQuoteTrustline) {
+            setStage('liquidity', 'Preparing the vault…');
+            await submitProgrammatically(
+              buildVaultTrustTransaction({
+                vaultAccount: await loadAccount(vaultAddress),
+                assetCode: sym,
+                issuer: store.issuer_public_key,
+                quote,
+              }),
+              vault
+            );
+            state = await readVaultState(vaultArgs);
+          }
+
+          if (state.tokenBalance < tokenHalf - 0.0000001 || state.quoteBalance < deposit - 0.0000001) {
+            setStage('liquidity', 'Moving the deposit into the vault…');
+            await submitWithRetry(
               async () => {
                 const userAccount = await loadAccount(wallet.address);
-                return buildLockSharesTransaction({
+                return buildVaultFundingTransfer({
                   sourceAccount: userAccount,
+                  vaultAddress,
                   assetCode: sym,
                   issuer: store.issuer_public_key,
                   quote,
-                  amount: shares,
+                  tokenAmount: tokenHalf,
+                  deposit,
                 });
               },
               signAndSubmit,
+              {
+                onRetry: (i, max) => {
+                  setRetrying(true);
+                  setStage('liquidity', `Retrying the transfer (${i}/${max})…`);
+                },
+              }
+            );
+          }
+
+          state = await readVaultState(vaultArgs);
+          if (!state.locked) {
+            setStage('liquidity', 'Locking the liquidity forever…');
+            await submitWithRetry(
+              async () => {
+                const vaultAccount = await loadAccount(vaultAddress);
+                return buildVaultDepositAndLockTransaction({
+                  vaultAccount,
+                  assetCode: sym,
+                  issuer: store.issuer_public_key,
+                  quote,
+                  deposit,
+                  tokenAmount: tokenHalf,
+                });
+              },
+              (tx) => submitProgrammatically(tx, vault),
               {
                 onRetry: (i, max) => {
                   setRetrying(true);
@@ -596,16 +669,15 @@ export default function LaunchToken() {
                 },
               }
             );
-            store.lock_balance_id = claimableBalanceId(lockResult) || '';
-            saveAttempt(store);
-            setAttempt({ ...store });
-          } catch (e) {
-            await failStep(store, 'liquidity', e);
-            throw e;
-          } finally {
-            setWaiting(false);
-            setRetrying(false);
           }
+          saveAttempt(store);
+          setAttempt({ ...store });
+        } catch (e) {
+          await failStep(store, 'liquidity', e);
+          throw e;
+        } finally {
+          setWaiting(false);
+          setRetrying(false);
         }
         setStage('liquidity', 'Liquidity locked');
         setStepStatus('liquidity', 'done');
@@ -743,7 +815,7 @@ export default function LaunchToken() {
             creator_allocation: isLocked ? store.creator_allocation : 0,
             vault_tokens: isLocked ? store.vault_tokens : 0,
             tokens_per_quote: isLocked ? store.tokens_per_quote : 0,
-            lock_balance_id: isLocked ? store.lock_balance_id || '' : '',
+            lock_account: isLocked ? store.vault_public_key || '' : '',
             pools: poolsForType(store.pool_type),
           };
           let created;
@@ -844,7 +916,7 @@ export default function LaunchToken() {
       vault_tokens: lockedMode ? lockedPlan.vaultTokens : 0,
       creator_allocation: lockedMode ? lockedPlan.creatorTokens : 0,
       tokens_per_quote: lockedMode ? lockedPlan.tokensPerQuote : 0,
-      lock_balance_id: '',
+      vault_public_key: null,
       custom_domain: form.customDomain,
       liquidity,
       auto_pool: autoPool,
@@ -916,10 +988,12 @@ export default function LaunchToken() {
     poolCount: lockedMode ? 1 : poolCount,
     needsUsdcTrustline: needsUsdc && !usdcTrustline,
   });
-  // Locking the shares is one more operation and one more ledger entry.
+  // The lock runs three more transactions from the vault's own account.
   const cost = lockedMode
-    ? { ...baseCost, feeXlm: baseCost.feeXlm + 100 / 1e7, reserveXlm: baseCost.reserveXlm + 0.5, operations: baseCost.operations + 1 }
+    ? { ...baseCost, feeXlm: baseCost.feeXlm + 300 / 1e7, operations: baseCost.operations + 3 }
     : baseCost;
+  // The vault keeps its own reserves forever, so this part never comes back.
+  const vaultXlm = lockedMode ? vaultFunding(0, lockedQuote) : 0;
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
   const swapXlm = lockedMode ? 0 : plan.swapXlm || 0;
   const depositXlm = lockedMode
@@ -927,7 +1001,7 @@ export default function LaunchToken() {
       ? lockedPlan.deposit
       : 0
     : parseFloat(plan.deposits.xlm) || 0;
-  const requiredXlm = cost.issuerReserveXlm + depositXlm + swapXlm + cost.feeXlm + cost.reserveXlm;
+  const requiredXlm = cost.issuerReserveXlm + depositXlm + swapXlm + cost.feeXlm + cost.reserveXlm + vaultXlm;
   // A split launch buys its USDC with XLM, so the wallet never needs USDC.
   const requiredUsdc = swapXlm > 0
     ? 0
@@ -1313,6 +1387,7 @@ export default function LaunchToken() {
                   <Row label="You Receive" value={`${Math.floor(lockedPlan.creatorTokens).toLocaleString()} ${form.symbol.toUpperCase()}`} />
                   <Row label="Locked in Pool" value={`${Math.floor(lockedPlan.vaultTokens).toLocaleString()} ${form.symbol.toUpperCase()}`} />
                   <Row label="Lock" value="Permanent · unwithdrawable" />
+                  <Row label="Vault Reserve" value={`~${vaultXlm} XLM · non-refundable`} />
                   {lockedQuote === 'usdc' && !usdcTrustline && <Row label="USDC Trustline" value="Added in this launch" />}
                 </>
               ) : (
@@ -1421,7 +1496,16 @@ export default function LaunchToken() {
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-2 text-sm">
             <Row label="Asset" value={`$${attempt.symbol}`} />
-            <Row label="Mode" value={attempt.auto_pool ? '100% Auto-Pool' : `Bonding Curve · ${attempt.liquidity}%`} />
+            <Row
+              label="Mode"
+              value={
+                attempt.launch_model === 'locked'
+                  ? 'Locked Liquidity'
+                  : attempt.auto_pool
+                  ? '100% Auto-Pool'
+                  : `Bonding Curve · ${attempt.liquidity}%`
+              }
+            />
             <Row
               label="Pool"
               value={POOL_TYPES.find((p) => p.value === (attempt.pool_type || 'xlm'))?.label || 'Single Pool (XLM)'}

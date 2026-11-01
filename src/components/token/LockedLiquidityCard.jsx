@@ -28,7 +28,7 @@ export default function LockedLiquidityCard({ token, market }) {
   const allocation = parseFloat(token?.creator_allocation) || 0;
   const vault = parseFloat(token?.vault_tokens) || 0;
   const perQuote = parseFloat(token?.tokens_per_quote) || 0;
-  const lockId = token?.lock_balance_id || '';
+  const lockAccount = token?.lock_account || '';
 
   // The live pool is the lock: its reserves cannot be withdrawn by anyone.
   const pool = market?.pool && market.pool.quote === quote ? market.pool : null;
@@ -68,9 +68,9 @@ export default function LockedLiquidityCard({ token, market }) {
       <Row label="Released to buyers" value={`${fmt(sold, 0)} ${symbol}`} />
 
       <div className="border-t border-white/5 pt-3">
-        {lockId ? (
+        {lockAccount ? (
           <a
-            href={`https://stellar.expert/explorer/public/claimable-balance/${lockId}`}
+            href={`https://stellar.expert/explorer/public/account/${lockAccount}`}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#00ff88] transition duration-200 hover:underline"
@@ -79,7 +79,7 @@ export default function LockedLiquidityCard({ token, market }) {
           </a>
         ) : (
           <p className="text-[11px] text-white/35">
-            The pool shares sit in a claimable balance that can never be claimed.
+            The pool shares sit on a vault account with no signers left.
           </p>
         )}
       </div>

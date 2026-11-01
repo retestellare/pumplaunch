@@ -3,13 +3,24 @@ import {
   BASE_FEE,
   BASE_PRICE,
   NETWORK_PASSPHRASE,
+  bytesToHex,
+  fetchPoolFor,
   loadAccount,
-  poolShareAsset,
+  poolShareInfo,
+  quoteAsset,
 } from '@/lib/stellar';
+import { USDC_CODE, USDC_ISSUER } from '@/lib/pools';
 
 // Locked launches open with no minimum while the model is being tested; raising
 // this later is the only change needed to enforce one.
 export const LOCKED_MIN_DEPOSIT = 0;
+
+// The vault needs 1 XLM of base reserve, three trustlines (token, pool shares and
+// USDC) and pays its own transaction fees.
+export const VAULT_RESERVE_XLM = 3;
+
+const formatAmount = (n) => Number(n).toFixed(7);
+const txOptions = { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE };
 
 // One preset ratio for every locked launch: a token is always worth BASE_PRICE
 // in XLM, so a USDC launch follows the live XLM/USDC rate.
@@ -19,7 +30,7 @@ export function tokensPerQuote(quote, xlmPerUsdc = 0) {
   return xlmPerUsdc > 0 ? perXlm * xlmPerUsdc : 0;
 }
 
-// What one deposit produces: the creator's own tokens, the half that stays in
+// What one deposit produces: the creator's own tokens, the half that goes into
 // the lock, and the supply that ties the two together. The two halves are equal,
 // so the pool opens at exactly the fixed ratio.
 export function planLockedLaunch({ quote = 'xlm', deposit, xlmPerUsdc = 0 }) {
@@ -39,73 +50,127 @@ export function planLockedLaunch({ quote = 'xlm', deposit, xlmPerUsdc = 0 }) {
   };
 }
 
-const formatAmount = (n) => Number(n).toFixed(7);
+// How much XLM the vault account is funded with: its reserves and fees, plus the
+// deposit itself when the launch is quoted in XLM.
+export function vaultFunding(deposit, quote) {
+  return VAULT_RESERVE_XLM + (quote === 'usdc' ? 0 : parseFloat(deposit) || 0);
+}
 
-// `not(unconditional)` is false at every ledger close, so a claimable balance
-// with this predicate can never be claimed by anyone — not by the creator.
-export const PERMANENTLY_LOCKED = { not: { unconditional: true } };
+export function newVaultKeypair() {
+  return StellarSdk.Keypair.random();
+}
 
-// Moves the pool shares into a claimable balance nobody can ever claim, which is
-// what makes the deposited liquidity impossible to withdraw.
-export function buildLockSharesTransaction({ sourceAccount, assetCode, issuer, quote, amount }) {
-  const asset = poolShareAsset(assetCode, issuer, quote);
-  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
+// 1. The vault is a separate account funded by the creator, so the deposit never
+//    sits on a wallet that can still sign for it.
+export function buildVaultCreationTransaction({ sourceAccount, vaultAddress, startingBalance }) {
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, txOptions);
   tx.addOperation(
-    StellarSdk.Operation.createClaimableBalance({
-      asset,
-      amount: formatAmount(amount),
-      claimants: [{ destination: sourceAccount.accountId(), predicate: PERMANENTLY_LOCKED }],
+    StellarSdk.Operation.createAccount({
+      destination: vaultAddress,
+      startingBalance: formatAmount(startingBalance),
     })
   );
-
   return tx.setTimeout(300).build();
 }
 
-// The pool shares the wallet currently holds. This is the only thing the lock
-// step needs, and it is read from the ledger rather than assumed.
-export async function fetchPoolShares(address, assetCode, issuer, quote = 'xlm') {
-  const asset = poolShareAsset(assetCode, issuer, quote);
-  const poolId = StellarSdk.getLiquidityPoolId(
-    'constant_product',
-    asset.getLiquidityPoolParameters()
-  ).toString('hex');
+// 2. Trustlines the vault needs to hold the deposit, the matched half of the
+//    supply, and the pool shares the deposit mints.
+export function buildVaultTrustTransaction({ vaultAccount, assetCode, issuer, quote = 'xlm' }) {
+  const { poolAsset } = poolShareInfo(assetCode, issuer, quote);
+  const tx = new StellarSdk.TransactionBuilder(vaultAccount, txOptions);
+  if (quote === 'usdc') tx.addOperation(StellarSdk.Operation.changeTrust({ asset: quoteAsset('usdc') }));
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset: new StellarSdk.Asset(assetCode, issuer) }));
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset: poolAsset }));
+  return tx.setTimeout(300).build();
+}
 
-  const account = await loadAccount(address);
-  const held = (account?.balances || []).find(
-    (b) => b.asset_type === 'liquidity_pool_shares' && b.liquidity_pool_id === poolId
+// 3. The creator hands over the matched half of the supply, and the USDC deposit
+//    when the launch is quoted in USDC (an XLM deposit is funded with the account).
+export function buildVaultFundingTransfer({
+  sourceAccount,
+  vaultAddress,
+  assetCode,
+  issuer,
+  quote = 'xlm',
+  tokenAmount,
+  deposit = 0,
+}) {
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, txOptions);
+  tx.addOperation(
+    StellarSdk.Operation.payment({
+      destination: vaultAddress,
+      asset: new StellarSdk.Asset(assetCode, issuer),
+      amount: formatAmount(tokenAmount),
+    })
   );
-  return held ? held.balance : '0';
+  if (quote === 'usdc' && deposit > 0) {
+    tx.addOperation(
+      StellarSdk.Operation.payment({
+        destination: vaultAddress,
+        asset: quoteAsset('usdc'),
+        amount: formatAmount(deposit),
+      })
+    );
+  }
+  return tx.setTimeout(300).build();
 }
 
-// Waits for the deposit to show up as shares before the lock is attempted, so a
-// slow ledger close cannot leave the liquidity unlocked.
-export async function waitForPoolShares(address, assetCode, issuer, quote = 'xlm') {
-  for (let i = 0; i < 6; i++) {
-    const shares = await fetchPoolShares(address, assetCode, issuer, quote);
-    if (parseFloat(shares) > 0) return shares;
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  return '0';
+// 4. The deposit enters the pool from the vault and the vault loses its only
+//    signer in the same transaction. From that ledger close on nobody — creator,
+//    platform or anyone else — can sign for it, so the shares can never be
+//    redeemed and the liquidity can never be withdrawn.
+export function buildVaultDepositAndLockTransaction({
+  vaultAccount,
+  assetCode,
+  issuer,
+  quote = 'xlm',
+  deposit,
+  tokenAmount,
+}) {
+  const { poolAsset, quoteFirst } = poolShareInfo(assetCode, issuer, quote);
+  const poolId = bytesToHex(
+    StellarSdk.getLiquidityPoolId('constant_product', poolAsset.getLiquidityPoolParameters())
+  );
+
+  const tx = new StellarSdk.TransactionBuilder(vaultAccount, txOptions);
+  tx.addOperation(
+    StellarSdk.Operation.liquidityPoolDeposit({
+      liquidityPoolId: poolId,
+      maxAmountA: formatAmount(quoteFirst ? deposit : tokenAmount),
+      maxAmountB: formatAmount(quoteFirst ? tokenAmount : deposit),
+      minPrice: { n: 1, d: 100000000 },
+      maxPrice: { n: 1, d: 1000 },
+    })
+  );
+  tx.addOperation(StellarSdk.Operation.setOptions({ masterWeight: 0 }));
+  return tx.setTimeout(300).build();
 }
 
-// The id of the claimable balance the lock transaction created, so the token
-// page can link straight to the proof on the explorer.
-export function claimableBalanceId(result) {
-  try {
-    const res = StellarSdk.xdr.TransactionResult.fromXDR(result.result_xdr, 'base64');
-    for (const op of res.result().results()) {
-      const tr = op.tr();
-      if (tr.switch().name !== 'createClaimableBalance') continue;
-      const cb = tr.createClaimableBalanceResult();
-      if (cb.switch().name !== 'createClaimableBalanceSuccess') continue;
-      return `00000000${cb.balanceId().v0().toString('hex')}`;
-    }
-  } catch {
-    /* the id is informative only */
-  }
-  return '';
+// What the vault already holds, so a launch that was interrupted resumes at the
+// step it stopped on instead of repeating transactions.
+export async function readVaultState({ vaultAddress, assetCode, issuer, quote = 'xlm' }) {
+  const [account, pool] = await Promise.all([
+    loadAccount(vaultAddress),
+    fetchPoolFor(assetCode, issuer, quote),
+  ]);
+
+  const balances = account?.balances || [];
+  const held = (code, iss) => balances.find((b) => b.asset_code === code && b.asset_issuer === iss);
+  const token = held(assetCode, issuer);
+  const quoteBalance =
+    quote === 'usdc'
+      ? parseFloat(held(USDC_CODE, USDC_ISSUER)?.balance || 0)
+      : parseFloat(balances.find((b) => b.asset_type === 'native')?.balance || 0);
+
+  return {
+    exists: !!account,
+    // An account with no signers left cannot authorise anything, ever again.
+    locked: !!account && (account.signers || []).length === 0,
+    hasTokenTrustline: !!token,
+    hasPoolTrustline: balances.some((b) => b.asset_type === 'liquidity_pool_shares'),
+    hasQuoteTrustline: quote === 'usdc' ? !!held(USDC_CODE, USDC_ISSUER) : true,
+    tokenBalance: token ? parseFloat(token.balance) : 0,
+    quoteBalance,
+    pool,
+  };
 }

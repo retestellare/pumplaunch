@@ -1,11 +1,16 @@
 import { base44 } from '@/api/base44Client';
 
 const SECRET_PREFIX = 'stellarlaunch_issuer_secret_';
+const VAULT_SECRET_PREFIX = 'stellarlaunch_vault_secret_';
 const idCache = new Map();
 let saveChain = Promise.resolve();
 
 function secretKey(walletAddress, symbol) {
   return `${SECRET_PREFIX}${(walletAddress || '').toLowerCase()}_${(symbol || '').toUpperCase()}`;
+}
+
+function vaultSecretKey(walletAddress, symbol) {
+  return `${VAULT_SECRET_PREFIX}${(walletAddress || '').toLowerCase()}_${(symbol || '').toUpperCase()}`;
 }
 
 export async function loadAttempt(walletAddress) {
@@ -64,7 +69,7 @@ async function doSave(attempt) {
     vault_tokens: parseFloat(attempt.vault_tokens) || 0,
     creator_allocation: parseFloat(attempt.creator_allocation) || 0,
     tokens_per_quote: parseFloat(attempt.tokens_per_quote) || 0,
-    lock_balance_id: attempt.lock_balance_id || '',
+    vault_public_key: attempt.vault_public_key || '',
     step: attempt.step || 'start',
     step_label: attempt.step_label || attempt.stepLabel || '',
     error: attempt.error || '',
@@ -107,6 +112,7 @@ export async function clearAttempt(walletAddress, symbol) {
   }
   try {
     localStorage.removeItem(secretKey(walletAddress, symbol));
+    localStorage.removeItem(vaultSecretKey(walletAddress, symbol));
   } catch {
     /* ignore */
   }
@@ -126,6 +132,25 @@ export function getIssuerSecret(walletAddress, symbol) {
 export function setIssuerSecret(walletAddress, symbol, secret) {
   try {
     localStorage.setItem(secretKey(walletAddress, symbol), secret);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+// The key of the locked-liquidity vault. It signs the vault's deposit and then
+// sets its own weight to zero, so losing it is the point — it is kept in this
+// browser only until the lock transaction lands.
+export function getVaultSecret(walletAddress, symbol) {
+  try {
+    return localStorage.getItem(vaultSecretKey(walletAddress, symbol)) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setVaultSecret(walletAddress, symbol, secret) {
+  try {
+    localStorage.setItem(vaultSecretKey(walletAddress, symbol), secret);
   } catch {
     /* storage unavailable */
   }

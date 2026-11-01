@@ -57,7 +57,7 @@
     "tokens_per_quote": {
       "type": "number"
     },
-    "lock_balance_id": {
+    "vault_public_key": {
       "type": "string"
     },
     "curve": {

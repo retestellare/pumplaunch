@@ -164,7 +164,7 @@ function formatPrice(n) {
   return Number(n).toFixed(10);
 }
 
-function bytesToHex(bytes) {
+export function bytesToHex(bytes) {
   return Array.prototype.map
     .call(bytes, (b) => b.toString(16).padStart(2, '0'))
     .join('');
@@ -504,6 +504,12 @@ export function buildPoolSellTransaction(args) {
 export function poolShareAsset(assetCode, issuer, quote = 'xlm') {
   const { poolAsset } = orderedPoolPair(quoteAsset(quote), new StellarSdk.Asset(assetCode, issuer));
   return poolAsset;
+}
+
+// The pool's share asset together with which side of the deposit is the quote,
+// which a liquidity-pool deposit needs to put its two amounts in order.
+export function poolShareInfo(assetCode, issuer, quote = 'xlm') {
+  return orderedPoolPair(quoteAsset(quote), new StellarSdk.Asset(assetCode, issuer));
 }
 
 function reserveAsset(r) {
