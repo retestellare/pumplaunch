@@ -48,6 +48,37 @@
       "type": "boolean",
       "default": false
     },
+    "launch_model": {
+      "type": "string",
+      "enum": [
+        "curve",
+        "auto_pool",
+        "locked"
+      ],
+      "default": "curve"
+    },
+    "locked_quote": {
+      "type": "string",
+      "enum": [
+        "xlm",
+        "usdc"
+      ]
+    },
+    "locked_liquidity": {
+      "type": "number"
+    },
+    "creator_allocation": {
+      "type": "number"
+    },
+    "vault_tokens": {
+      "type": "number"
+    },
+    "tokens_per_quote": {
+      "type": "number"
+    },
+    "lock_balance_id": {
+      "type": "string"
+    },
     "pools": {
       "type": "array",
       "items": {

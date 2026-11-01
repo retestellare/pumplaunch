@@ -51,11 +51,19 @@ import {
   getIssuerSecret,
 } from '@/lib/launchAttempts';
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
+import LockedLiquidityForm from '@/components/launch/LockedLiquidityForm';
+import {
+  planLockedLaunch,
+  buildLockSharesTransaction,
+  waitForPoolShares,
+  claimableBalanceId,
+} from '@/lib/lockedLiquidity';
 import { ImagePlus } from 'lucide-react';
 
 const DISTRIBUTION_OPTIONS = [
   { value: 100, label: '100% Liquidity', desc: 'All tokens seeded to the DEX bonding curve' },
   { value: 'auto_pool', label: '100% Auto-Pool', desc: '100% of XLM from purchases goes directly into the Stellar Liquidity Pool to automatically support liquidity.' },
+  { value: 'locked', label: 'Locked Liquidity', desc: 'Your deposit is locked in a pool nobody can withdraw. You receive half the supply, buyers release the rest.' },
 ];
 
 // Only these two paces are offered at launch.
@@ -117,6 +125,11 @@ export default function LaunchToken() {
   const [form, setForm] = useState({ name: '', symbol: '', description: '', supply: '1000000000', customDomain: '' });
   const [liquidity, setLiquidity] = useState(100);
   const [autoPool, setAutoPool] = useState(false);
+  // The locked model: every deposit is matched by an equal half of the supply,
+  // and the pool shares are locked away forever.
+  const [lockedMode, setLockedMode] = useState(false);
+  const [lockedQuote, setLockedQuote] = useState('xlm');
+  const [lockedDeposit, setLockedDeposit] = useState('');
   const [initialLiquidity, setInitialLiquidity] = useState('');
   const [curve, setCurve] = useState('slow');
   const [step, setStep] = useState('form');
@@ -210,7 +223,7 @@ export default function LaunchToken() {
       toast({ title: 'Symbol must be 4-12 alphanumeric characters', variant: 'destructive' });
       return false;
     }
-    if (!autoPool) {
+    if (!autoPool && !lockedMode) {
       const supply = parseFloat(form.supply);
       if (!supply || supply <= 0) {
         toast({ title: 'Enter a valid supply', variant: 'destructive' });
@@ -223,6 +236,17 @@ export default function LaunchToken() {
         toast({ title: 'Invalid domain format (e.g. mytoken.com)', variant: 'destructive' });
         return false;
       }
+    }
+    if (lockedMode) {
+      if (!(lockedPlan.deposit > 0)) {
+        toast({ title: `Enter the ${lockedUnit} you want to lock`, variant: 'destructive' });
+        return false;
+      }
+      if (lockedQuote === 'usdc' && !(xlmPerUsdc > 0)) {
+        toast({ title: 'Still reading the XLM/USDC rate', description: 'Give it a moment and try again.', variant: 'destructive' });
+        return false;
+      }
+      return true;
     }
     const il = parseFloat(initialLiquidity);
     if (autoPool) {
@@ -268,9 +292,14 @@ export default function LaunchToken() {
     const sym = (store.symbol || '').toUpperCase();
     const customDomain = store.custom_domain ? cleanDomain(store.custom_domain) : (store.customDomain ? cleanDomain(store.customDomain) : '');
     const homeDomain = customDomain || HOME_DOMAIN;
+    const isLocked = store.launch_model === 'locked';
     store.symbol = sym;
     store.custom_domain = customDomain;
-    store.pool_type = store.pool_type || 'xlm';
+    store.pool_type = isLocked
+      ? store.locked_quote === 'usdc'
+        ? 'usdc'
+        : 'xlm'
+      : store.pool_type || 'xlm';
 
     const setStage = (stepId, label) => {
       store.step = stepId;
@@ -317,15 +346,38 @@ export default function LaunchToken() {
         throw new Error('Could not read the XLM/USDC rate just now. Try again in a moment.');
       }
 
+      // A locked launch derives its supply from the deposit: half goes to the
+      // creator, the other half is matched against the deposit in the lock.
+      const lockedPlanForLaunch = isLocked
+        ? planLockedLaunch({
+            quote: store.locked_quote,
+            deposit: store.locked_deposit,
+            xlmPerUsdc: await fetchXlmUsdcRate(),
+          })
+        : null;
+      if (isLocked && !lockedPlanForLaunch.ready) {
+        throw new Error('That deposit cannot open a locked launch. Check the XLM/USDC rate and try again.');
+      }
+
       const supply = store.reused_asset
         ? parseFloat(store.supply) || 0
         : store.auto_pool
         ? launchPlan.supply
+        : isLocked
+        ? lockedPlanForLaunch.supply
         : parseFloat(store.supply);
       if (!store.reused_asset && (!supply || isNaN(supply) || supply <= 0)) {
         throw new Error('Invalid supply. Enter a valid total supply and try again.');
       }
       store.supply = supply;
+
+      if (isLocked) {
+        store.locked_deposit = lockedPlanForLaunch.deposit;
+        store.vault_tokens = lockedPlanForLaunch.vaultTokens;
+        store.creator_allocation = lockedPlanForLaunch.creatorTokens;
+        store.tokens_per_quote = lockedPlanForLaunch.tokensPerQuote;
+        saveAttempt(store);
+      }
 
       // Step 1: Create issuer account + trustline
       setStage('issuer', store.reused_asset ? 'Existing token — skipped' : 'Creating issuer account…');
@@ -483,6 +535,80 @@ export default function LaunchToken() {
       setStage('liquidity', store.reused_asset ? 'Existing token — skipped' : 'Seeding liquidity…');
       if (store.reused_asset) {
         setStepStatus('liquidity', 'done');
+      } else if (isLocked) {
+        const quote = store.locked_quote === 'usdc' ? 'usdc' : 'xlm';
+        const p3 = await verifyLaunchProgress({
+          walletAddress: wallet.address,
+          issuerPublicKey: store.issuer_public_key,
+          assetCode: sym,
+          isAutoPool: true,
+          quotes: [quote],
+        });
+        if (!p3.liquidityExists) {
+          setWaiting(true);
+          try {
+            setStage('liquidity', 'Depositing locked liquidity…');
+            await submitWithRetry(
+              async () => {
+                const userAccount = await loadAccount(wallet.address);
+                return buildPoolSetupTransaction({
+                  sourceAccount: userAccount,
+                  assetCode: sym,
+                  issuer: store.issuer_public_key,
+                  quote,
+                  quoteAmount: store.locked_deposit,
+                  tokenAmount: store.vault_tokens,
+                });
+              },
+              signAndSubmit,
+              {
+                onRetry: (i, max) => {
+                  setRetrying(true);
+                  setStage('liquidity', `Retrying the deposit (${i}/${max})…`);
+                },
+                verify: async () => !!(await fetchPoolFor(sym, store.issuer_public_key, quote)),
+              }
+            );
+
+            // The shares leave the wallet into a balance that can never be
+            // claimed, which is what makes the liquidity unwithdrawable.
+            setStage('liquidity', 'Locking the liquidity forever…');
+            const shares = await waitForPoolShares(wallet.address, sym, store.issuer_public_key, quote);
+            if (!(parseFloat(shares) > 0)) {
+              throw new Error('The pool did not confirm yet. Resume to finish locking the liquidity.');
+            }
+            const lockResult = await submitWithRetry(
+              async () => {
+                const userAccount = await loadAccount(wallet.address);
+                return buildLockSharesTransaction({
+                  sourceAccount: userAccount,
+                  assetCode: sym,
+                  issuer: store.issuer_public_key,
+                  quote,
+                  amount: shares,
+                });
+              },
+              signAndSubmit,
+              {
+                onRetry: (i, max) => {
+                  setRetrying(true);
+                  setStage('liquidity', `Retrying the lock (${i}/${max})…`);
+                },
+              }
+            );
+            store.lock_balance_id = claimableBalanceId(lockResult) || '';
+            saveAttempt(store);
+            setAttempt({ ...store });
+          } catch (e) {
+            await failStep(store, 'liquidity', e);
+            throw e;
+          } finally {
+            setWaiting(false);
+            setRetrying(false);
+          }
+        }
+        setStage('liquidity', 'Liquidity locked');
+        setStepStatus('liquidity', 'done');
       } else {
         const p3 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool, quotes: launchQuotes });
         if (!p3.liquidityExists) {
@@ -610,7 +736,14 @@ export default function LaunchToken() {
             volume_24h: 0,
             change_24h: 0,
             is_graduated: true,
-            is_auto_pool: store.auto_pool,
+            is_auto_pool: !!store.auto_pool,
+            launch_model: store.launch_model || 'curve',
+            locked_quote: isLocked ? store.locked_quote || 'xlm' : null,
+            locked_liquidity: isLocked ? store.locked_deposit : 0,
+            creator_allocation: isLocked ? store.creator_allocation : 0,
+            vault_tokens: isLocked ? store.vault_tokens : 0,
+            tokens_per_quote: isLocked ? store.tokens_per_quote : 0,
+            lock_balance_id: isLocked ? store.lock_balance_id || '' : '',
             pools: poolsForType(store.pool_type),
           };
           let created;
@@ -704,7 +837,14 @@ export default function LaunchToken() {
       name: form.name.trim(),
       symbol: sym,
       description: form.description.trim(),
-      supply: form.supply,
+      supply: lockedMode ? lockedPlan.supply : form.supply,
+      launch_model: lockedMode ? 'locked' : autoPool ? 'auto_pool' : 'curve',
+      locked_quote: lockedQuote,
+      locked_deposit: lockedMode ? lockedPlan.deposit : 0,
+      vault_tokens: lockedMode ? lockedPlan.vaultTokens : 0,
+      creator_allocation: lockedMode ? lockedPlan.creatorTokens : 0,
+      tokens_per_quote: lockedMode ? lockedPlan.tokensPerQuote : 0,
+      lock_balance_id: '',
       custom_domain: form.customDomain,
       liquidity,
       auto_pool: autoPool,
@@ -752,12 +892,14 @@ export default function LaunchToken() {
   };
 
   const curvePreset = CURVE_PRESETS[curve];
-  // Only an Auto-Pool launch seeds the chosen pool pair; a bonding-curve launch
-  // always seeds one XLM pool.
-  const effectivePoolType = autoPool ? poolType : 'xlm';
-  const plan = planPoolLaunch({ poolType: effectivePoolType, input: initialLiquidity, xlmPerUsdc });
+  // A locked launch quotes against the asset the creator picked; a bonding-curve
+  // launch always seeds one XLM pool.
+  const effectivePoolType = autoPool ? poolType : lockedMode ? lockedQuote : 'xlm';
+  const plan = planPoolLaunch({ poolType: effectivePoolType, input: lockedMode ? '' : initialLiquidity, xlmPerUsdc });
+  const lockedPlan = planLockedLaunch({ quote: lockedQuote, deposit: lockedDeposit, xlmPerUsdc });
+  const lockedUnit = lockedQuote === 'usdc' ? 'USDC' : 'XLM';
   const poolCount = plan.quotes.length;
-  const needsUsdc = plan.quotes.includes('usdc');
+  const needsUsdc = effectivePoolType === 'usdc';
   const inputUnit = effectivePoolType === 'usdc' ? 'USDC' : 'XLM';
   const rateReady = !needsUsdc || xlmPerUsdc > 0;
   const allocation = plan.quotes.map((q) => ({
@@ -766,19 +908,34 @@ export default function LaunchToken() {
     tokens: plan.tokensByQuote[q] || 0,
   }));
   const derivedSupply = plan.supply;
-  const cost = estimateLaunchCost({
-    liquidityPercent: liquidity,
+  const baseCost = estimateLaunchCost({
+    liquidityPercent: lockedMode ? 0 : liquidity,
     rungs: curvePreset.rungs,
-    autoPool,
-    hasInitialLiquidity: !!(initialLiquidity && parseFloat(initialLiquidity) >= 10),
-    poolCount,
+    autoPool: autoPool || lockedMode,
+    hasInitialLiquidity: lockedMode ? true : !!(initialLiquidity && parseFloat(initialLiquidity) >= 10),
+    poolCount: lockedMode ? 1 : poolCount,
     needsUsdcTrustline: needsUsdc && !usdcTrustline,
   });
+  // Locking the shares is one more operation and one more ledger entry.
+  const cost = lockedMode
+    ? { ...baseCost, feeXlm: baseCost.feeXlm + 100 / 1e7, reserveXlm: baseCost.reserveXlm + 0.5, operations: baseCost.operations + 1 }
+    : baseCost;
   const effectiveDomain = form.customDomain ? cleanDomain(form.customDomain) : HOME_DOMAIN;
-  const swapXlm = plan.swapXlm || 0;
-  const requiredXlm = cost.issuerReserveXlm + (parseFloat(plan.deposits.xlm) || 0) + swapXlm + cost.feeXlm + cost.reserveXlm;
+  const swapXlm = lockedMode ? 0 : plan.swapXlm || 0;
+  const depositXlm = lockedMode
+    ? lockedQuote === 'xlm'
+      ? lockedPlan.deposit
+      : 0
+    : parseFloat(plan.deposits.xlm) || 0;
+  const requiredXlm = cost.issuerReserveXlm + depositXlm + swapXlm + cost.feeXlm + cost.reserveXlm;
   // A split launch buys its USDC with XLM, so the wallet never needs USDC.
-  const requiredUsdc = swapXlm > 0 ? 0 : parseFloat(plan.deposits.usdc) || 0;
+  const requiredUsdc = swapXlm > 0
+    ? 0
+    : lockedMode
+    ? lockedQuote === 'usdc'
+      ? lockedPlan.deposit
+      : 0
+    : parseFloat(plan.deposits.usdc) || 0;
   const xlmOk = availableXlm === null || availableXlm >= requiredXlm;
   const usdcOk = !needsUsdc || availableUsdc === null || availableUsdc >= requiredUsdc;
   const balanceOk = xlmOk && usdcOk;
@@ -867,13 +1024,20 @@ export default function LaunchToken() {
                 className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 resize-none disabled:opacity-40"
               />
             </div>
-            {autoPool ? (
+            {autoPool || lockedMode ? (
               <div>
                 <label className="text-xs text-white/40 mb-1.5 block">Total Supply (auto)</label>
                 <div className="w-full bg-[#00ff88]/5 border border-[#00ff88]/20 rounded-xl px-3 py-3 font-mono text-sm text-[#00ff88]">
-                  {derivedSupply > 0 ? Math.floor(derivedSupply).toLocaleString() : '—'}
+                  {(() => {
+                    const auto = autoPool ? derivedSupply : lockedPlan.supply;
+                    return auto > 0 ? Math.floor(auto).toLocaleString() : '—';
+                  })()}
                 </div>
-                <p className="text-[10px] text-white/30 mt-1">Determined by your initial liquidity. More XLM = more tokens, all go to the pool.</p>
+                <p className="text-[10px] text-white/30 mt-1">
+                  {lockedMode
+                    ? 'Half goes to you, half stays locked with your deposit.'
+                    : 'Determined by your initial liquidity. More XLM = more tokens, all go to the pool.'}
+                </p>
               </div>
             ) : (
               <div>
@@ -922,6 +1086,7 @@ export default function LaunchToken() {
             </div>
           </div>
 
+          {!lockedMode && (
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
             <div>
               <h3 className="text-sm font-bold">Market & Pool</h3>
@@ -953,29 +1118,55 @@ export default function LaunchToken() {
               )}
             </div>
           </div>
+          )}
 
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
             <div>
-              <h3 className="text-sm font-bold">Supply Distribution & Bonding Curve</h3>
+              <h3 className="text-sm font-bold">
+                {lockedMode ? 'Locked Liquidity' : 'Supply Distribution & Bonding Curve'}
+              </h3>
               <p className="text-[10px] text-white/30 mt-0.5">
-                How much of the supply is seeded, and how steeply the curve prices it
+                {lockedMode
+                  ? 'Your deposit is locked forever; buyers release the rest of the supply'
+                  : 'How much of the supply is seeded, and how steeply the curve prices it'}
               </p>
             </div>
 
             <OptionGroup
               label="Distribution"
               options={DISTRIBUTION_OPTIONS}
-              isSelected={(opt) => (opt.value === 'auto_pool' ? autoPool : !autoPool && liquidity === opt.value)}
+              isSelected={(opt) =>
+                opt.value === 'locked' ? lockedMode : opt.value === 'auto_pool' ? autoPool : !autoPool && !lockedMode && liquidity === opt.value
+              }
               onSelect={(opt) => {
-                if (opt.value === 'auto_pool') {
+                if (opt.value === 'locked') {
+                  setLockedMode(true);
+                  setAutoPool(false);
+                } else if (opt.value === 'auto_pool') {
+                  setLockedMode(false);
                   setAutoPool(true);
                 } else {
+                  setLockedMode(false);
                   setAutoPool(false);
                   setLiquidity(opt.value);
                 }
               }}
               disabled={blocked}
             />
+
+            {lockedMode && (
+              <LockedLiquidityForm
+                quote={lockedQuote}
+                onQuote={setLockedQuote}
+                deposit={lockedDeposit}
+                onDeposit={setLockedDeposit}
+                plan={lockedPlan}
+                symbol={form.symbol.toUpperCase()}
+                rateReady={rateReady}
+                usdcTrustline={usdcTrustline}
+                disabled={blocked}
+              />
+            )}
 
             {autoPool && (
               <PoolPairSelector
@@ -991,7 +1182,7 @@ export default function LaunchToken() {
               />
             )}
 
-            {!autoPool && (
+            {!autoPool && !lockedMode && (
               <OptionGroup
                 label="Price Curve"
                 options={CURVE_OPTIONS}
@@ -1050,7 +1241,7 @@ export default function LaunchToken() {
 
           <button
             onClick={review}
-            disabled={!wallet || blocked || !rateReady || (wallet && availableXlm !== null && !balanceOk)}
+            disabled={!wallet || blocked || !rateReady || (lockedMode && !lockedPlan.ready) || (wallet && availableXlm !== null && !balanceOk)}
             className="w-full py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
           >
             {blocked
@@ -1073,10 +1264,15 @@ export default function LaunchToken() {
               <Row label="Asset" value={form.symbol.toUpperCase()} />
               <Row label="Issuer" value="Auto-generated · Locked" />
               <Row label="Home Domain" value={effectiveDomain} />
-              <Row label="Total Supply" value={(autoPool ? Math.floor(derivedSupply) : parseFloat(form.supply)).toLocaleString()} />
+              <Row
+                label="Total Supply"
+                value={(
+                  autoPool ? Math.floor(derivedSupply) : lockedMode ? Math.floor(lockedPlan.supply) : parseFloat(form.supply)
+                ).toLocaleString()}
+              />
               <Row
                 label="Launch Type"
-                value={POOL_TYPES.find((p) => p.value === effectivePoolType)?.label || 'Single Pool (XLM)'}
+                value={lockedMode ? 'Locked Liquidity' : POOL_TYPES.find((p) => p.value === effectivePoolType)?.label || 'Single Pool (XLM)'}
               />
               {autoPool ? (
                 <>
@@ -1102,6 +1298,22 @@ export default function LaunchToken() {
                     />
                   ))}
                   {needsUsdc && !usdcTrustline && <Row label="USDC Trustline" value="Added in this launch" />}
+                </>
+              ) : lockedMode ? (
+                <>
+                  <Row label="Locked Deposit" value={`${fmtPoolAmount(lockedPlan.deposit)} ${lockedUnit}`} />
+                  <Row
+                    label="Fixed Ratio"
+                    value={
+                      lockedPlan.tokensPerQuote
+                        ? `1 ${lockedUnit} = ${Math.floor(lockedPlan.tokensPerQuote).toLocaleString()} ${form.symbol.toUpperCase()}`
+                        : '—'
+                    }
+                  />
+                  <Row label="You Receive" value={`${Math.floor(lockedPlan.creatorTokens).toLocaleString()} ${form.symbol.toUpperCase()}`} />
+                  <Row label="Locked in Pool" value={`${Math.floor(lockedPlan.vaultTokens).toLocaleString()} ${form.symbol.toUpperCase()}`} />
+                  <Row label="Lock" value="Permanent · unwithdrawable" />
+                  {lockedQuote === 'usdc' && !usdcTrustline && <Row label="USDC Trustline" value="Added in this launch" />}
                 </>
               ) : (
                 <>

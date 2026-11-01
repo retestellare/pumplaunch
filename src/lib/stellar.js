@@ -499,6 +499,13 @@ export function buildPoolSellTransaction(args) {
   return buildSellTransaction(args);
 }
 
+// The share asset of a token's pool — what a deposit mints and what has to be
+// taken out of circulation to make the liquidity unwithdrawable.
+export function poolShareAsset(assetCode, issuer, quote = 'xlm') {
+  const { poolAsset } = orderedPoolPair(quoteAsset(quote), new StellarSdk.Asset(assetCode, issuer));
+  return poolAsset;
+}
+
 function reserveAsset(r) {
   return r.asset || (r.asset_code ? `${r.asset_code}:${r.asset_issuer}` : '');
 }

@@ -29,6 +29,37 @@
     "initial_liquidity": {
       "type": "number"
     },
+    "launch_model": {
+      "type": "string",
+      "enum": [
+        "curve",
+        "auto_pool",
+        "locked"
+      ],
+      "default": "curve"
+    },
+    "locked_quote": {
+      "type": "string",
+      "enum": [
+        "xlm",
+        "usdc"
+      ]
+    },
+    "locked_deposit": {
+      "type": "number"
+    },
+    "vault_tokens": {
+      "type": "number"
+    },
+    "creator_allocation": {
+      "type": "number"
+    },
+    "tokens_per_quote": {
+      "type": "number"
+    },
+    "lock_balance_id": {
+      "type": "string"
+    },
     "curve": {
       "type": "string"
     },

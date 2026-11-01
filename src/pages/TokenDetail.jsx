@@ -11,6 +11,7 @@ import { formatOnChainTrades, priceFills } from '@/lib/stellar';
 import { fetchTokenMarket, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
+import LockedLiquidityCard from '@/components/token/LockedLiquidityCard';
 import PoolBadge from '@/components/PoolBadge';
 import ShareButton from '@/components/ShareButton';
 import TokenOgPreview from '@/components/TokenOgPreview';
@@ -159,6 +160,8 @@ export default function TokenDetail() {
             change24h={change24h}
           />
         )}
+
+        {token.launch_model === 'locked' && <LockedLiquidityCard token={token} market={market} />}
 
         <TokenInfoCards token={token} stats={stats} market={market} />
 
