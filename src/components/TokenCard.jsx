@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import TokenIcon from './TokenIcon';
 import PoolBadge from './PoolBadge';
+import { launchTag } from '@/lib/launchTag';
 
 // Rows stagger in; the first four also carry the price flash from the terminal design.
 const rowDelay = (i) => (i < 4 ? `${0.3 + i * 0.08}s` : '0s');
@@ -62,6 +63,9 @@ export default function TokenCard({ token, rank, index = 0 }) {
           }`}
         >
           {hasChange ? `${positive ? '+' : ''}${change.toFixed(2)}%` : '—'}
+        </div>
+        <div className="text-[9px] font-black uppercase tracking-[.06em] text-[#F2F7F4]/35 mt-1 whitespace-nowrap">
+          {launchTag(token)}
         </div>
       </div>
     </Link>
