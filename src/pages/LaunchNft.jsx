@@ -9,7 +9,7 @@ import WalletButton from '@/components/WalletButton';
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
 import OptionGroup from '@/components/launch/OptionGroup';
 import NftMediaUpload from '@/components/nft/NftMediaUpload';
-import NftLaunchGuide from '@/components/nft/NftLaunchGuide';
+import ServiceGuide from '@/components/launch/ServiceGuide';
 import { Image } from '@/components/ui/image';
 import { EDITION_TYPES, QUOTES, MAX_SUPPLY, buildMetadata, editionLabel, fmtMintPrice } from '@/lib/nft';
 import {
@@ -305,7 +305,7 @@ export default function LaunchNft() {
     <PageLayout title="Launch NFT" rightAction={<WalletButton />}>
       <div className="p-4 space-y-4">
         <LaunchTypeSwitch value="/launch-nft" />
-        <NftLaunchGuide />
+        <ServiceGuide service="nft" services={['nft']} />
 
         <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
           <div>

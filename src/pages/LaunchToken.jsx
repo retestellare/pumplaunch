@@ -7,7 +7,7 @@ import { recordReward } from '@/lib/rewards';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
-import LaunchGuide from '@/components/LaunchGuide';
+import ServiceGuide from '@/components/launch/ServiceGuide';
 import OptionGroup from '@/components/launch/OptionGroup';
 import PoolPairSelector, { fmtPoolAmount } from '@/components/launch/PoolPairSelector';
 import ShareButton from '@/components/ShareButton';
@@ -1031,7 +1031,7 @@ export default function LaunchToken() {
       {step === 'form' ? (
         <div className="p-4 space-y-4">
           <LaunchTypeSwitch value="/launch" />
-          <LaunchGuide />
+          <ServiceGuide service={lockedMode ? 'locked' : autoPool ? 'auto_pool' : 'curve'} />
           {stallLoading ? (
             <div className="text-center text-white/40 text-sm py-4">Checking for unfinished launches…</div>
           ) : stalledAttempt && stallAnalysis ? (
