@@ -89,11 +89,15 @@ export default function LockedLiquidityForm({
           className="w-full bg-black/30 border border-white/5 rounded-xl px-3 py-3 outline-none focus:border-[#00ff88]/40 disabled:opacity-40"
         />
         <p className="text-[10px] text-white/30 mt-1">
-          {LOCKED_MIN_DEPOSIT > 0
-            ? `Minimum ${LOCKED_MIN_DEPOSIT} ${unit}.`
-            : 'No minimum while the model is in testing.'}{' '}
-          This amount leaves your wallet for good.
+          Capped at {fmt(plan.maxDeposit)} {unit} per launch
+          {LOCKED_MIN_DEPOSIT > 0 ? ` (minimum ${LOCKED_MIN_DEPOSIT} ${unit})` : ''}. This amount leaves your
+          wallet for good.
         </p>
+        {plan.overCap && (
+          <p className="text-[10px] text-[#ff3b5c] mt-1 font-bold">
+            Above the {fmt(plan.maxDeposit)} {unit} cap. Lower the deposit — whatever goes in is lost forever.
+          </p>
+        )}
         {quote === 'usdc' && !usdcTrustline && deposit ? (
           <p className="text-[10px] text-[#ffb020] mt-1">
             A USDC trustline is added in the same launch.
@@ -120,6 +124,16 @@ export default function LockedLiquidityForm({
           label="Launch price"
           value={plan.tokensPerQuote ? `${(1 / plan.tokensPerQuote).toFixed(8)} ${unit}` : '—'}
         />
+      </div>
+
+      <div className="rounded-xl border border-[#ff3b5c]/30 bg-[#ff3b5c]/[.05] px-3 py-2">
+        <p className="text-[10px] font-black uppercase tracking-[.1em] text-[#ff3b5c]">
+          Permanent — nothing is ever recoverable
+        </p>
+        <p className="text-[10px] text-white/50 mt-0.5">
+          There is no unlock date and no withdrawal. Only lock what you are willing to lose for good, which is why
+          each launch is capped at {fmt(plan.maxDeposit)} {unit}.
+        </p>
       </div>
 
       <p className="text-[10px] leading-relaxed text-white/35">

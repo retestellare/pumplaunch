@@ -257,6 +257,14 @@ export default function LaunchToken() {
       }
     }
     if (lockedMode) {
+      if (lockedPlan.overCap) {
+        toast({
+          title: `Locked liquidity is capped at ${Math.floor(lockedPlan.maxDeposit).toLocaleString()} ${lockedUnit}`,
+          description: 'Lower the deposit — locked liquidity can never be withdrawn.',
+          variant: 'destructive',
+        });
+        return false;
+      }
       if (!(lockedPlan.deposit > 0)) {
         toast({ title: `Enter the ${lockedUnit} you want to lock`, variant: 'destructive' });
         return false;

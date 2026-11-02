@@ -15,6 +15,15 @@ import { USDC_CODE, USDC_ISSUER } from '@/lib/pools';
 // this later is the only change needed to enforce one.
 export const LOCKED_MIN_DEPOSIT = 0;
 
+// Locked liquidity is gone for good, so one launch may never commit more than
+// this much value to it. A single cap for both quote assets, priced in XLM.
+export const MAX_LOCKED_XLM = 250;
+
+export function maxLockDeposit(quote = 'xlm', xlmPerUsdc = 0) {
+  if (quote !== 'usdc') return MAX_LOCKED_XLM;
+  return xlmPerUsdc > 0 ? MAX_LOCKED_XLM / xlmPerUsdc : 0;
+}
+
 // The vault needs 1 XLM of base reserve, three trustlines (token, pool shares and
 // USDC) and pays its own transaction fees.
 export const VAULT_RESERVE_XLM = 3;
@@ -38,7 +47,9 @@ export function tokensPerQuote(quote, xlmPerUsdc = 0) {
 export function planLockedLaunch({ quote = 'xlm', deposit, xlmPerUsdc = 0, lockPercent = 50 }) {
   const amount = parseFloat(deposit) || 0;
   const perQuote = tokensPerQuote(quote, xlmPerUsdc);
-  const ready = amount > 0 && perQuote > 0;
+  const cap = maxLockDeposit(quote, xlmPerUsdc);
+  const overCap = cap > 0 && amount > cap;
+  const ready = amount > 0 && perQuote > 0 && !overCap;
   const fullLock = Number(lockPercent) >= 100;
   const matched = ready ? amount * perQuote : 0;
   const creatorTokens = fullLock ? 0 : matched;
@@ -51,6 +62,8 @@ export function planLockedLaunch({ quote = 'xlm', deposit, xlmPerUsdc = 0, lockP
     creatorTokens,
     vaultTokens,
     supply: creatorTokens + vaultTokens,
+    maxDeposit: cap,
+    overCap,
     ready,
   };
 }
