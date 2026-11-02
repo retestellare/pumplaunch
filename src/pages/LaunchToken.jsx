@@ -69,7 +69,7 @@ import { ImagePlus } from 'lucide-react';
 const DISTRIBUTION_OPTIONS = [
   { value: 100, label: '100% Liquidity', desc: 'All tokens seeded to the DEX bonding curve' },
   { value: 'auto_pool', label: '100% Auto-Pool', desc: '100% of XLM from purchases goes directly into the Stellar Liquidity Pool to automatically support liquidity.' },
-  { value: 'locked', label: 'Locked Liquidity', desc: 'Your deposit is locked in a pool nobody can withdraw. You receive half the supply, buyers release the rest.' },
+  { value: 'locked', label: 'Locked Liquidity', desc: 'Your deposit is locked in a pool nobody can withdraw. Choose 50% or 100% of the supply to sit in the lock with it.' },
 ];
 
 // Only these two paces are offered at launch.
@@ -147,6 +147,7 @@ export default function LaunchToken() {
   // and the pool shares are locked away forever.
   const [lockedMode, setLockedMode] = useState(false);
   const [lockedQuote, setLockedQuote] = useState('xlm');
+  const [lockedPercent, setLockedPercent] = useState(50);
   const [lockedDeposit, setLockedDeposit] = useState('');
   const [initialLiquidity, setInitialLiquidity] = useState('');
   const [curve, setCurve] = useState('slow');
@@ -370,6 +371,7 @@ export default function LaunchToken() {
         ? planLockedLaunch({
             quote: store.locked_quote,
             deposit: store.locked_deposit,
+            lockPercent: store.lock_percent || (parseFloat(store.creator_allocation) > 0 ? 50 : 100),
             xlmPerUsdc: await fetchXlmUsdcRate(),
           })
         : null;
@@ -912,6 +914,7 @@ export default function LaunchToken() {
       supply: lockedMode ? lockedPlan.supply : form.supply,
       launch_model: lockedMode ? 'locked' : autoPool ? 'auto_pool' : 'curve',
       locked_quote: lockedQuote,
+      lock_percent: lockedMode ? lockedPercent : null,
       locked_deposit: lockedMode ? lockedPlan.deposit : 0,
       vault_tokens: lockedMode ? lockedPlan.vaultTokens : 0,
       creator_allocation: lockedMode ? lockedPlan.creatorTokens : 0,
@@ -968,7 +971,12 @@ export default function LaunchToken() {
   // launch always seeds one XLM pool.
   const effectivePoolType = autoPool ? poolType : lockedMode ? lockedQuote : 'xlm';
   const plan = planPoolLaunch({ poolType: effectivePoolType, input: lockedMode ? '' : initialLiquidity, xlmPerUsdc });
-  const lockedPlan = planLockedLaunch({ quote: lockedQuote, deposit: lockedDeposit, xlmPerUsdc });
+  const lockedPlan = planLockedLaunch({
+    quote: lockedQuote,
+    deposit: lockedDeposit,
+    lockPercent: lockedPercent,
+    xlmPerUsdc,
+  });
   const lockedUnit = lockedQuote === 'usdc' ? 'USDC' : 'XLM';
   const poolCount = plan.quotes.length;
   const needsUsdc = effectivePoolType === 'usdc';
@@ -1109,7 +1117,9 @@ export default function LaunchToken() {
                 </div>
                 <p className="text-[10px] text-white/30 mt-1">
                   {lockedMode
-                    ? 'Half goes to you, half stays locked with your deposit.'
+                    ? lockedPercent === 100
+                      ? 'The entire supply is locked in the pool with your deposit.'
+                      : 'Half goes to you, half stays locked with your deposit.'
                     : 'Determined by your initial liquidity. More XLM = more tokens, all go to the pool.'}
                 </p>
               </div>
@@ -1234,6 +1244,8 @@ export default function LaunchToken() {
                 onQuote={setLockedQuote}
                 deposit={lockedDeposit}
                 onDeposit={setLockedDeposit}
+                lockPercent={lockedPercent}
+                onLockPercent={setLockedPercent}
                 plan={lockedPlan}
                 symbol={form.symbol.toUpperCase()}
                 rateReady={rateReady}
@@ -1384,8 +1396,18 @@ export default function LaunchToken() {
                         : '—'
                     }
                   />
-                  <Row label="You Receive" value={`${Math.floor(lockedPlan.creatorTokens).toLocaleString()} ${form.symbol.toUpperCase()}`} />
-                  <Row label="Locked in Pool" value={`${Math.floor(lockedPlan.vaultTokens).toLocaleString()} ${form.symbol.toUpperCase()}`} />
+                  <Row
+                    label="You Receive"
+                    value={
+                      lockedPlan.creatorTokens > 0
+                        ? `${Math.floor(lockedPlan.creatorTokens).toLocaleString()} ${form.symbol.toUpperCase()}`
+                        : 'None'
+                    }
+                  />
+                  <Row
+                    label="Supply Locked"
+                    value={`${lockedPlan.lockPercent}% · ${Math.floor(lockedPlan.vaultTokens).toLocaleString()} ${form.symbol.toUpperCase()}`}
+                  />
                   <Row label="Lock" value="Permanent · unwithdrawable" />
                   <Row label="Vault Reserve" value={`~${vaultXlm} XLM · non-refundable`} />
                   {lockedQuote === 'usdc' && !usdcTrustline && <Row label="USDC Trustline" value="Added in this launch" />}

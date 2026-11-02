@@ -9,6 +9,13 @@ ORG_DESCRIPTION="Stellar Pump — launch and trade memecoins and NFT collections
 ORG_KEYWORDS="stellar, memecoin, nft, launchpad, xlm, dex"
 
 [[CURRENCIES]]
+code="PLOCK"
+issuer="GADMVBT5SWY7JPJ2DZCLKPAM6EJY5W7VTV4NHR4FFG26SWNC2553X4LD"
+name="Pump lock"
+desc="​\"The secure launchpad token powered by Stellar. 50% locked safely in the pool forever, released only by the community.\""
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/377a96cd3_33820.jpg"
+
+[[CURRENCIES]]
 code="SPARK"
 issuer="GAOZPXNUAL2GPATYKLTT3UIADO7VZ2ZSRM6BPKNX6LGK7M2LYGT3VTF7"
 name="Scintilla"

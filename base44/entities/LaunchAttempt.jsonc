@@ -45,6 +45,14 @@
         "usdc"
       ]
     },
+    "lock_percent": {
+      "type": "number",
+      "enum": [
+        50,
+        100
+      ],
+      "default": 50
+    },
     "locked_deposit": {
       "type": "number"
     },

@@ -6,6 +6,11 @@ const QUOTE_CHOICES = [
   { key: 'usdc', label: 'USDC' },
 ];
 
+const LOCK_CHOICES = [
+  { key: 50, label: '50% locked', desc: 'Half in the pool, half yours' },
+  { key: 100, label: '100% locked', desc: 'Entire supply in the pool' },
+];
+
 function fmt(n) {
   if (!n) return '0';
   return Math.floor(n).toLocaleString();
@@ -18,6 +23,8 @@ export default function LockedLiquidityForm({
   onQuote,
   deposit,
   onDeposit,
+  lockPercent,
+  onLockPercent,
   plan,
   symbol,
   rateReady,
@@ -26,9 +33,32 @@ export default function LockedLiquidityForm({
 }) {
   const unit = quote === 'usdc' ? 'USDC' : 'XLM';
   const sym = symbol || 'tokens';
+  const fullLock = Number(lockPercent) >= 100;
 
   return (
     <div className="space-y-3">
+      <div>
+        <label className="text-xs text-white/40 mb-1.5 block">Supply in the Lock</label>
+        <div className="flex gap-1 p-1 rounded-xl bg-black/30">
+          {LOCK_CHOICES.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => onLockPercent(c.key)}
+              disabled={disabled}
+              className={`flex-1 py-2 rounded-lg transition duration-200 disabled:opacity-40 ${
+                Number(lockPercent) === c.key ? 'bg-[#00ff88] text-black' : 'text-white/50 hover:text-white/80'
+              }`}
+            >
+              <span className="block text-xs font-bold">{c.label}</span>
+              <span className={`block text-[9px] mt-0.5 ${Number(lockPercent) === c.key ? 'text-black/60' : 'text-white/30'}`}>
+                {c.desc}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div>
         <label className="text-xs text-white/40 mb-1.5 block">Locked Liquidity Asset</label>
         <div className="flex gap-1 p-1 rounded-xl bg-black/30">
@@ -79,7 +109,11 @@ export default function LockedLiquidityForm({
           <Lock size={11} /> Locked launch preview
         </div>
         <Row label="Fixed ratio" value={plan.tokensPerQuote ? `1 ${unit} = ${fmt(plan.tokensPerQuote)} ${sym}` : '—'} />
-        <Row label="You receive" value={`${fmt(plan.creatorTokens)} ${sym}`} tone="text-[#00ff88]" />
+        <Row
+          label="You receive"
+          value={fullLock ? 'None' : `${fmt(plan.creatorTokens)} ${sym}`}
+          tone={fullLock ? 'text-white/40' : 'text-[#00ff88]'}
+        />
         <Row label="Locked in the pool" value={`${fmt(plan.vaultTokens)} ${sym}`} />
         <Row label="Total supply" value={fmt(plan.supply)} />
         <Row
@@ -89,9 +123,9 @@ export default function LockedLiquidityForm({
       </div>
 
       <p className="text-[10px] leading-relaxed text-white/35">
-        The pool shares are sent to a balance that can never be claimed, so nobody — not even you — can
-        withdraw this liquidity. Your own tokens can only be sold back into it, and buyers get the other
-        half as they purchase.
+        {fullLock
+          ? 'The entire supply enters the pool with your deposit and the pool shares are locked away forever, so nobody — not even you — can withdraw the liquidity or sell into it. Every token can only ever be bought by the community.'
+          : 'The pool shares land on a vault account that loses its only signer, so nobody — not even you — can withdraw this liquidity. Your own tokens can only be sold back into it, and buyers get the other half as they purchase.'}
       </p>
     </div>
   );

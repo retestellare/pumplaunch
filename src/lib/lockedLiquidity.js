@@ -30,17 +30,22 @@ export function tokensPerQuote(quote, xlmPerUsdc = 0) {
   return xlmPerUsdc > 0 ? perXlm * xlmPerUsdc : 0;
 }
 
-// What one deposit produces: the creator's own tokens, the half that goes into
-// the lock, and the supply that ties the two together. The two halves are equal,
-// so the pool opens at exactly the fixed ratio.
-export function planLockedLaunch({ quote = 'xlm', deposit, xlmPerUsdc = 0 }) {
+// What one deposit produces: the tokens that go into the lock with it and the
+// tokens the creator keeps. A 50% launch mints the kept tokens on top, so half the
+// supply sits in the lock; a 100% launch mints only what the lock absorbs, so the
+// creator keeps none. Either way the pool opens at exactly the fixed ratio, so the
+// launch price never depends on the split.
+export function planLockedLaunch({ quote = 'xlm', deposit, xlmPerUsdc = 0, lockPercent = 50 }) {
   const amount = parseFloat(deposit) || 0;
   const perQuote = tokensPerQuote(quote, xlmPerUsdc);
   const ready = amount > 0 && perQuote > 0;
-  const creatorTokens = ready ? amount * perQuote : 0;
-  const vaultTokens = creatorTokens;
+  const fullLock = Number(lockPercent) >= 100;
+  const matched = ready ? amount * perQuote : 0;
+  const creatorTokens = fullLock ? 0 : matched;
+  const vaultTokens = matched;
   return {
     quote,
+    lockPercent: fullLock ? 100 : 50,
     deposit: ready ? amount : 0,
     tokensPerQuote: perQuote,
     creatorTokens,

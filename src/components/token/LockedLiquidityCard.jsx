@@ -59,7 +59,11 @@ export default function LockedLiquidityCard({ token, market }) {
         value={perQuote ? `1 ${unit} = ${fmt(perQuote, 0)} ${symbol}` : '—'}
         sub="set at launch, never changed"
       />
-      <Row label="Creator received" value={`${fmt(allocation, 0)} ${symbol}`} />
+      <Row
+        label="Creator received"
+        value={allocation > 0 ? `${fmt(allocation, 0)} ${symbol}` : 'None'}
+        sub={allocation > 0 ? null : 'the whole supply was locked'}
+      />
       <Row
         label="Still in the lock"
         value={`${fmt(remaining, 0)} ${symbol}`}
