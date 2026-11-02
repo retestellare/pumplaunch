@@ -28,7 +28,15 @@ export default function TokenInfoCards({ token, stats, market }) {
   const pool = market?.pool || null;
   const book = market?.book || null;
   const poolQuotes = market?.quotes || [];
-  const poolQuoteLabel = pool?.quote === 'usdc' ? 'USDC' : 'XLM';
+  // A dual-pool token has one pool per quote asset, so every reserve is listed
+  // instead of only the first pool found.
+  const pools = poolQuotes
+    .map((quote) => ({
+      quote,
+      label: quote === 'usdc' ? 'USDC' : 'XLM',
+      detail: market?.markets?.[quote],
+    }))
+    .filter((p) => p.detail?.pool);
   const buyPrice = market?.buyPrice > 0 ? market.buyPrice : null;
   const sellPrice = market?.sellPrice > 0 ? market.sellPrice : null;
   const hasBook = !!(book && (book.askCount > 0 || book.bidCount > 0));
@@ -98,14 +106,22 @@ export default function TokenInfoCards({ token, stats, market }) {
             )}
             {pool && (
               <>
-                <div className="border-t border-white/5 pt-3 mt-1 space-y-3">
-                  <Row label={`${poolQuoteLabel} Reserve`} value={`${fmt(pool.quoteReserve, 2)} ${poolQuoteLabel}`} />
-                  <Row label={`${token.symbol} Reserve`} value={fmt(pool.tokenReserve, 0)} />
-                  <Row
-                    label="Pool Price"
-                    value={market.poolPriceXlm ? `${market.poolPriceXlm.toFixed(8)} XLM` : '—'}
-                  />
-                </div>
+                {pools.map((p, i) => (
+                  <div
+                    key={p.quote}
+                    className={`space-y-3 border-t border-white/5 pt-3 ${i === 0 ? 'mt-1' : ''}`}
+                  >
+                    {pools.length > 1 && (
+                      <div className="text-[10px] uppercase tracking-[.1em] text-white/30">{p.label} Pool</div>
+                    )}
+                    <Row label={`${p.label} Reserve`} value={`${fmt(p.detail.pool.quoteReserve, 2)} ${p.label}`} />
+                    <Row label={`${token.symbol} Reserve`} value={fmt(p.detail.pool.tokenReserve, 0)} />
+                    <Row
+                      label="Pool Price"
+                      value={p.detail.poolPriceXlm ? `${p.detail.poolPriceXlm.toFixed(8)} XLM` : '—'}
+                    />
+                  </div>
+                ))}
               </>
             )}
             {hasBook && (
