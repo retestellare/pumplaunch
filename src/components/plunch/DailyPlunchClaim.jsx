@@ -102,130 +102,119 @@ export default function DailyPlunchClaim() {
   const remaining = nextAt > now ? countdown(nextAt - now) : null;
   const poolShort = status?.pool != null && status.pool < REWARD;
 
-  let bodyNode;
+  // Two compact slots: the action sits beside the amount, the note runs under it.
+  const pill =
+    'h-[30px] px-3 rounded-[9px] font-black text-[10px] tracking-[.07em] uppercase transition duration-200 active:opacity-85 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]';
+  const primary = `${pill} bg-[#00F59B] text-[#04100B] shadow-[0_0_14px_rgba(0,245,155,.5)] hover:shadow-[0_0_20px_rgba(0,245,155,.7)]`;
+  const ghost = `${pill} bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] hover:shadow-[0_0_14px_rgba(0,245,155,.45)]`;
+
+  let actionNode = null;
+  let noteNode = null;
+
   if (!wallet?.address) {
-    bodyNode = (
-      <>
-        <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
-          Connect a wallet holding PLUNCH to collect today&apos;s drop.
-        </p>
-        <button
-          onClick={connect}
-          disabled={connecting}
-          className="mt-2.5 w-full h-[44px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[12px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.45)] transition duration-200 hover:shadow-[0_0_26px_rgba(0,245,155,.65)] active:opacity-85 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-        >
-          {connecting ? 'Connecting…' : 'Connect wallet'}
-        </button>
-      </>
+    actionNode = (
+      <button onClick={connect} disabled={connecting} className={primary}>
+        {connecting ? 'Connecting…' : 'Connect'}
+      </button>
     );
+    noteNode = <>Connect a wallet holding PLUNCH to collect today&apos;s drop.</>;
   } else if (loading && !status) {
-    bodyNode = (
-      <p className="flex items-center gap-2 text-[12px] text-[#F2F7F4]/45">
-        <Loader2 size={14} className="animate-spin" /> Checking your wallet…
-      </p>
+    noteNode = (
+      <span className="flex items-center gap-1.5">
+        <Loader2 size={11} className="animate-spin" /> Checking your wallet…
+      </span>
     );
   } else if (phase === 'sent') {
-    bodyNode = (
+    actionNode = <ShareReceiptButton amount={REWARD} />;
+    noteNode = (
       <>
-        <p className="flex items-start gap-2 text-[12px] font-bold text-[#00F59B]">
-          <Check size={15} className="mt-[1px] shrink-0" />
-          Sent — {AMOUNT_LABEL} PLUNCH landed in your wallet.
-        </p>
-        {txHash && (
-          <a
-            href={`${EXPLORER}${txHash}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-[#F2F7F4]/50 transition duration-200 hover:text-[#00F59B]"
-          >
-            View transaction <ExternalLink size={12} />
-          </a>
-        )}
-        <ShareReceiptButton amount={REWARD} className="mt-2 w-full justify-center h-[36px] text-[11px]" />
-        {remaining && (
-          <p className="mt-2 text-[11px] text-[#F2F7F4]/45">
-            Next drop in <span className="font-mono text-[#F2F7F4]/70">{remaining}</span>
-          </p>
-        )}
+        <span className="flex items-center gap-1 font-bold text-[#00F59B]">
+          <Check size={11} className="shrink-0" /> Sent — {AMOUNT_LABEL} PLUNCH landed.
+        </span>
+        <span className="mt-0.5 flex items-center gap-2.5">
+          {txHash && (
+            <a
+              href={`${EXPLORER}${txHash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-bold text-[#F2F7F4]/50 transition duration-200 hover:text-[#00F59B]"
+            >
+              View tx <ExternalLink size={10} />
+            </a>
+          )}
+          {remaining && (
+            <span>
+              Next in <span className="font-mono text-[#F2F7F4]/70">{remaining}</span>
+            </span>
+          )}
+        </span>
       </>
     );
   } else if (status?.trustline === false) {
-    bodyNode = (
-      <p className="text-[12px] leading-snug text-[#F2F7F4]/60">
-        This wallet has no PLUNCH trustline yet. Add PLUNCH in your wallet to receive the daily drop.
-      </p>
-    );
+    noteNode = <>This wallet has no PLUNCH trustline yet. Add PLUNCH in your wallet to receive the daily drop.</>;
   } else if (status?.eligible) {
-    bodyNode = (
-      <>
-        <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#00F59B]">Today&apos;s drop is ready</p>
-        <button
-          onClick={claim}
-          className="mt-2 w-full h-[46px] rounded-[12px] bg-[#00F59B] text-[#04100B] font-black text-[13px] tracking-[.08em] uppercase shadow-[0_0_18px_rgba(0,245,155,.5)] transition duration-200 hover:shadow-[0_0_28px_rgba(0,245,155,.7)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-        >
-          Request {AMOUNT_LABEL} PLUNCH
-        </button>
-      </>
+    actionNode = (
+      <button onClick={claim} className={primary}>
+        Request {AMOUNT_LABEL}
+      </button>
     );
+    noteNode = <>Today&apos;s drop is ready — one tap sends it to your wallet.</>;
   } else if (status) {
-    bodyNode = remaining ? (
-      <>
-        <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/40">Next drop in</p>
-        <p className="font-mono text-[22px] leading-tight tracking-[.06em] text-[#F2F7F4]">{remaining}</p>
-        <ShareReceiptButton amount={REWARD} className="mt-2 w-full justify-center h-[36px] text-[11px]" />
-      </>
-    ) : (
-      <>
-        <p className="text-[11px] leading-snug text-[#F2F7F4]/55">
+    if (remaining) {
+      actionNode = <ShareReceiptButton amount={REWARD} />;
+      noteNode = (
+        <>
+          Next drop in <span className="font-mono text-[11px] text-[#F2F7F4]/80">{remaining}</span>
+        </>
+      );
+    } else {
+      actionNode = (
+        <button onClick={load} className={ghost}>
+          Check again
+        </button>
+      );
+      noteNode = (
+        <>
           {poolShort
             ? 'The daily PLUNCH pool is refilling — no drop available right now.'
             : 'No drop is open for this wallet right now.'}
-        </p>
-        <button
-          onClick={load}
-          className="mt-2 w-full h-[38px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[11px] tracking-[.08em] uppercase transition duration-200 hover:shadow-[0_0_16px_rgba(0,245,155,.45)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-        >
-          Check again
-        </button>
-      </>
-    );
+        </>
+      );
+    }
   } else {
-    bodyNode = (
-      <button
-        onClick={load}
-        className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[12px] tracking-[.08em] uppercase transition duration-200 hover:shadow-[0_0_16px_rgba(0,245,155,.45)] active:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
-      >
-        Check my eligibility
+    actionNode = (
+      <button onClick={load} className={ghost}>
+        Check eligibility
       </button>
     );
   }
 
   return (
-    <div className="rounded-[16px] border border-[#00F59B]/25 bg-[linear-gradient(135deg,#101a17,#101816)] p-3.5 shadow-[0_0_24px_rgba(0,245,155,.09)]">
-      <div className="flex items-center gap-3">
-        <span className="w-10 h-10 rounded-[12px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex items-center justify-center shrink-0">
-          <Rocket size={19} />
+    <div className="rounded-[14px] border border-[#00F59B]/25 bg-[linear-gradient(135deg,#101a17,#101816)] px-3 py-2.5 shadow-[0_0_24px_rgba(0,245,155,.09)]">
+      <div className="flex items-center gap-2.5">
+        <span className="w-8 h-8 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex items-center justify-center shrink-0">
+          <Rocket size={15} />
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[.14em] text-[#F2F7F4]/45">Daily PLUNCH drop</p>
-          <p className="font-display text-[19px] leading-tight text-[#00F59B] [text-shadow:0_0_14px_rgba(0,245,155,.45)]">
+          <p className="text-[8px] font-black uppercase tracking-[.12em] text-[#F2F7F4]/45">Daily PLUNCH drop</p>
+          <p className="font-display text-[15px] leading-tight text-[#00F59B] [text-shadow:0_0_14px_rgba(0,245,155,.45)]">
             {AMOUNT_LABEL} PLUNCH
           </p>
         </div>
+        <div className="shrink-0">
+          {phase === 'claiming' ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[.07em] text-[#00F59B]">
+              <Loader2 size={12} className="animate-spin" /> Sending…
+            </span>
+          ) : (
+            actionNode
+          )}
+        </div>
       </div>
-      <div className="mt-3">
-        {phase === 'claiming' ? (
-          <button
-            disabled
-            className="w-full h-[46px] rounded-[12px] bg-[#16211E] border border-[#00F59B]/30 text-[#00F59B] font-black text-[13px] tracking-[.08em] uppercase flex items-center justify-center gap-2"
-          >
-            <Loader2 size={16} className="animate-spin" /> Sending…
-          </button>
-        ) : (
-          bodyNode
-        )}
-      </div>
-      {error && <p className="mt-2 text-[11px] leading-snug text-[#FF4D6D]">{error}</p>}
+      {noteNode && (
+        <div className="mt-1.5 text-[10px] leading-snug text-[#F2F7F4]/50">{noteNode}</div>
+      )}
+      {error && <p className="mt-1 text-[10px] leading-snug text-[#FF4D6D]">{error}</p>}
     </div>
   );
 }
