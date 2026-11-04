@@ -1,4 +1,10 @@
-import { fetchAssetStats, fetchOrderBook, fetchPoolFor, fetchXlmUsdcRate } from '@/lib/stellar';
+import {
+  fetchAssetStats,
+  fetchOrderBook,
+  fetchPoolFor,
+  fetchTokenLiquidityPools,
+  fetchXlmUsdcRate,
+} from '@/lib/stellar';
 import { tokenPools } from '@/lib/pools';
 import { liquidityGrowth } from '@/lib/liquidity';
 
@@ -105,6 +111,14 @@ export function combineMarkets(markets, xlmPerUsdc = 0) {
 
 export async function fetchMarket(assetCode, issuer, { quotes = ['xlm'], xlmPerUsdc = 0 } = {}) {
   return fetchMarkets(assetCode, issuer, { quotes, xlmPerUsdc });
+}
+
+// Pools the token holds alongside an asset other than XLM or USDC. They are not
+// priced into the app's XLM figures, but they are where an imported token's
+// liquidity really sits, so the token page lists them separately.
+export async function fetchOtherPools(assetCode, issuer, limit = 3) {
+  const pools = await fetchTokenLiquidityPools(assetCode, issuer);
+  return pools.filter((p) => p.quote === 'other').slice(0, limit);
 }
 
 // Everything a token screen needs: on-chain activity (holders, volume, change,

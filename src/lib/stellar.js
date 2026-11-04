@@ -553,6 +553,47 @@ export function fetchPoolPrice(assetCode, issuer, quote = 'xlm') {
   return fetchPoolFor(assetCode, issuer, quote);
 }
 
+// Every pool this exact asset trades in, whatever sits on the other side. An
+// imported token can be paired with a third asset (SHX, AQUA, yXLM…) whose pool
+// never shows up in the XLM/USDC lookups above, yet holds its real liquidity.
+export async function fetchTokenLiquidityPools(assetCode, issuer) {
+  if (!assetCode || !issuer) return [];
+  const tokenKey = `${assetCode}:${issuer}`;
+  const data = await horizonJsonSafe(`/liquidity_pools?reserves=${tokenKey}&limit=50`);
+
+  const pools = [];
+  for (const pool of data?._embedded?.records || []) {
+    const reserves = pool.reserves || [];
+    const tokenSide = reserves.find((r) => reserveAsset(r) === tokenKey);
+    const otherSide = reserves.find((r) => reserveAsset(r) !== tokenKey);
+    if (!tokenSide || !otherSide) continue;
+
+    const quoteReserve = parseFloat(otherSide.amount) || 0;
+    const tokenReserve = parseFloat(tokenSide.amount) || 0;
+    if (quoteReserve <= 0 || tokenReserve <= 0) continue;
+
+    const otherRef = reserveAsset(otherSide);
+    const native = otherRef === 'native';
+    const [quoteCode, quoteIssuer] = native ? ['XLM', null] : otherRef.split(':');
+    const quote = native
+      ? 'xlm'
+      : quoteCode === USDC_CODE && quoteIssuer === USDC_ISSUER
+      ? 'usdc'
+      : 'other';
+
+    pools.push({
+      poolId: pool.id,
+      quote,
+      quoteCode,
+      quoteIssuer,
+      quoteReserve,
+      tokenReserve,
+      price: quoteReserve / tokenReserve,
+    });
+  }
+  return pools.sort((a, b) => b.tokenReserve - a.tokenReserve);
+}
+
 let rateCache = null;
 
 // How many XLM one USDC buys. Every USDC figure the app shows is converted

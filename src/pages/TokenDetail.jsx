@@ -8,7 +8,7 @@ import PriceChartCard from '@/components/charts/PriceChartCard';
 import TradingPanel from '@/components/TradingPanel';
 import OpenOrders from '@/components/OpenOrders';
 import { formatOnChainTrades, priceFills } from '@/lib/stellar';
-import { fetchTokenMarket, ROUTE_LABEL } from '@/lib/market';
+import { fetchTokenMarket, fetchOtherPools, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
 import LockedLiquidityCard from '@/components/token/LockedLiquidityCard';
@@ -57,10 +57,14 @@ export default function TokenDetail() {
       return;
     }
 
-    // One call resolves every pool the token has, all normalised to XLM.
-    const { stats: s, market: m, xlmPerUsdc: rate } = await fetchTokenMarket(t);
+    // One call resolves every XLM/USDC pool the token has, normalised to XLM;
+    // pools paired with any other asset are read alongside it.
+    const [{ stats: s, market: m, xlmPerUsdc: rate }, otherPools] = await Promise.all([
+      fetchTokenMarket(t),
+      fetchOtherPools(t.asset_code, t.issuer),
+    ]);
     setStats(s);
-    setMarket(m);
+    setMarket({ ...m, otherPools });
     setXlmPerUsdc(rate);
     setLiveTrades(formatOnChainTrades(s.trades, t.asset_code, t.issuer, 20, rate));
     cardFor(s, m).then(setOgCard).catch(() => {});

@@ -37,6 +37,9 @@ export default function TokenInfoCards({ token, stats, market }) {
       detail: market?.markets?.[quote],
     }))
     .filter((p) => p.detail?.pool);
+  // Pools held with any other asset — an imported token often keeps its real
+  // liquidity in one of these instead of an XLM or USDC pool.
+  const otherPools = market?.otherPools || [];
   const buyPrice = market?.buyPrice > 0 ? market.buyPrice : null;
   const sellPrice = market?.sellPrice > 0 ? market.sellPrice : null;
   const hasBook = !!(book && (book.askCount > 0 || book.bidCount > 0));
@@ -85,7 +88,7 @@ export default function TokenInfoCards({ token, stats, market }) {
         <h3 className="font-bold text-sm text-white/80">Liquidity</h3>
         {!market ? (
           <p className="text-xs text-white/30">Reading the market…</p>
-        ) : !pool && !hasBook ? (
+        ) : !pool && !hasBook && !otherPools.length ? (
           <p className="text-xs text-white/30">No liquidity yet — this token has no pool and no open offers.</p>
         ) : (
           <>
@@ -124,6 +127,19 @@ export default function TokenInfoCards({ token, stats, market }) {
                 ))}
               </>
             )}
+            {otherPools.map((p, i) => (
+              <div
+                key={p.poolId}
+                className={`space-y-3 border-t border-white/5 pt-3 ${pools.length === 0 && i === 0 ? 'mt-1' : ''}`}
+              >
+                <div className="text-[10px] uppercase tracking-[.1em] text-white/30">
+                  {token.symbol} / {p.quoteCode} Pool
+                </div>
+                <Row label={`${p.quoteCode} Reserve`} value={`${fmt(p.quoteReserve, 2)} ${p.quoteCode}`} />
+                <Row label={`${token.symbol} Reserve`} value={fmt(p.tokenReserve, 0)} />
+                <Row label="Pool Price" value={`${p.price.toFixed(8)} ${p.quoteCode}`} />
+              </div>
+            ))}
             {hasBook && (
               <div className="border-t border-white/5 pt-3 mt-1 space-y-3">
                 <Row label="Open Offers" value={`${book.askCount} sell · ${book.bidCount} buy`} />
