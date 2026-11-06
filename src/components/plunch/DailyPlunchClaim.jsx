@@ -5,9 +5,8 @@ import { useWallet } from '@/lib/wallet';
 import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
 
-const REWARD = 90000;
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
-const formatAmount = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+const formatAmount = (n) => (Number(n) > 0 ? Math.round(Number(n)).toLocaleString('en-US') : '—');
 const EXPLORER = 'https://stellar.expert/explorer/public/tx/';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -39,14 +38,14 @@ export default function DailyPlunchClaim() {
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
   const [error, setError] = useState('');
   const [txHash, setTxHash] = useState('');
-  const [sentAmount, setSentAmount] = useState(REWARD);
+  const [sentAmount, setSentAmount] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
 
   // The faucet reports the drop it can actually pay today, so the card never
   // promises more than the wallet will receive.
-  const reward = status?.amount > 0 ? status.amount : REWARD;
+  const reward = status?.amount > 0 ? status.amount : 0;
   const AMOUNT_LABEL = formatAmount(phase === 'sent' ? sentAmount : reward);
 
   useEffect(() => {
@@ -213,7 +212,7 @@ export default function DailyPlunchClaim() {
         Request {AMOUNT_LABEL}
       </button>
     );
-    noteNode = <>Today&apos;s drop is ready — one tap sends it to your wallet.</>;
+    noteNode = <>Today&apos;s drop is worth 0.1 XLM at the live PLUNCH rate — one tap sends it.</>;
   } else if (status) {
     if (remaining) {
       actionNode = <ShareReceiptButton amount={reward} />;

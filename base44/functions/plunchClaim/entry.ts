@@ -4,7 +4,8 @@ import * as StellarSdk from 'npm:@stellar/stellar-sdk@17.1.0';
 
 const HORIZON_URL = 'https://horizon.stellar.org';
 const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
-const REWARD_AMOUNT = 90000;
+// The drop is worth this much XLM: the faucet pays whatever the live rate buys.
+const REWARD_XLM = 0.1;
 const ASSET_CODE = 'PLUNCH';
 const ASSET_ISSUER = 'GC37N3TEZDIXDIGZC4PYM2ZTWE5ASWDDJGGXIPWLBGNMFROOBFF5MP2D';
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -25,6 +26,31 @@ const plunchBalance = (account) => {
   const line = plunchLine(account);
   return line ? parseFloat(line.balance) : 0;
 };
+
+const PRICE_TTL_MS = 60 * 1000;
+let priceCache = { price: 0, at: 0 };
+
+// The PLUNCH/XLM rate comes from the mainnet order book. A tight book is read at its
+// mid price; a wide or one-sided book falls back to the side that exists, so a thin
+// market can never inflate the reward.
+async function plunchPrice(server, asset) {
+  if (priceCache.price > 0 && Date.now() - priceCache.at < PRICE_TTL_MS) return priceCache.price;
+
+  let price = 0;
+  try {
+    const book = await server.orderbook(asset, StellarSdk.Asset.native()).limit(1).call();
+    const bid = parseFloat(book?.bids?.[0]?.price ?? '');
+    const ask = parseFloat(book?.asks?.[0]?.price ?? '');
+    if (bid > 0 && ask > 0 && ask / bid <= 2) price = (bid + ask) / 2;
+    else if (bid > 0) price = bid;
+    else if (ask > 0) price = ask;
+  } catch {
+    price = 0;
+  }
+
+  if (price > 0) priceCache = { price, at: Date.now() };
+  return price;
+}
 
 // Wallet-signed rewards: this endpoint has no app-user session to scope by, so the
 // claim records are read and written with the service role and are the authority on
@@ -98,14 +124,23 @@ export default async function (req) {
     const funder = StellarSdk.Keypair.fromSecret(secrets.get('PUMPLAUNCH_FUNDER_SECRET'));
     const funderAccount = await server.loadAccount(funder.publicKey());
     const pool = plunchBalance(funderAccount);
+
+    const asset = new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER);
+    // The price sets the drop, not a fixed token count: the faucet pays what 0.1 XLM
+    // buys right now, so the reward keeps its value as PLUNCH moves. An unreadable
+    // market never falls back to a guessed amount.
+    const price = await plunchPrice(server, asset);
+    const reward = price > 0 ? Math.floor(REWARD_XLM / price) : 0;
     // The drop is the full reward while the faucet can cover it. When the pool runs
     // low the claim still goes through for everything it holds, and the card shows
     // that amount instead of a reward the wallet would never receive.
-    const drop = Math.min(REWARD_AMOUNT, Math.floor(pool));
+    const drop = Math.min(reward, Math.floor(pool));
 
     if (action === 'status') {
       return reply({
         amount: drop,
+        price,
+        target_xlm: REWARD_XLM,
         trustline: hasTrustline,
         balance: plunchBalance(account),
         pool,
@@ -178,7 +213,6 @@ export default async function (req) {
     // One drop per wallet. A balance already parked for this wallet IS today's drop:
     // it is handed back so the wallet claims it in a single approval, whether or not
     // the line is open yet. Parking or paying a second one is what paid a wallet twice.
-    const asset = new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER);
     let parkedId = null;
     let parkedAmount = 0;
     try {
@@ -201,6 +235,9 @@ export default async function (req) {
       return reply({ error: 'Your last claim is still settling. Try again in a minute.' }, 429);
     }
     if (drop < 1) {
+      if (price <= 0) {
+        return reply({ error: 'The PLUNCH market price cannot be read right now, so no drop can be priced.' }, 503);
+      }
       return reply({ error: 'The daily PLUNCH pool is empty right now.' }, 503);
     }
 
