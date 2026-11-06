@@ -24,7 +24,10 @@ async function invoke(payload) {
     return { data: res?.data ?? res, error: null };
   } catch (err) {
     const data = err?.response?.data;
-    return { data, error: data?.error || err?.message || 'The faucet did not answer.' };
+    // Only real text is shown: a payload that answers with an object must never
+    // reach the card as "[object Object]".
+    const text = [data?.error, err?.message].find((v) => typeof v === 'string' && v.trim());
+    return { data, error: text || 'The faucet did not answer.' };
   }
 }
 

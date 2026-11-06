@@ -16,12 +16,17 @@ export function WalletProvider({ children }) {
       .catch(() => {});
   }, []);
 
+  // A wallet picker the user closes, or a module that answers with its own error
+  // payload instead of an Error, must not escape as an unhandled rejection: the
+  // app simply stays disconnected and the button is ready to tap again.
   const connect = useCallback(async () => {
     ensureKitInit();
     setConnecting(true);
     try {
       const { address } = await StellarWalletsKit.authModal();
-      setWallet({ address });
+      if (address) setWallet({ address });
+    } catch {
+      /* dismissed or unavailable — nothing to report */
     } finally {
       setConnecting(false);
     }

@@ -122,7 +122,10 @@ export function explainError(e) {
       code = 'transient_network';
     }
   }
-  const message = (code && ERROR_MAP[code]) || e?.message || String(e);
+  // A wallet module can reject with its own payload rather than an Error, which
+  // would otherwise reach the user as "[object Object]".
+  const text = typeof e === 'string' ? e : typeof e?.message === 'string' ? e.message : '';
+  const message = (code && ERROR_MAP[code]) || text || 'The wallet or the network did not complete this request.';
   return { message, code };
 }
 
