@@ -56,6 +56,35 @@ export default async function (req) {
       { sort: '-created_date', limit: HISTORY_LIMIT }
     );
     const claims = history?.items || [];
+
+    // A wallet can also claim a parked drop straight from its own wallet app. The
+    // chain is the truth: a pending record whose balance was already claimed is
+    // closed here, so it can never unlock a second drop.
+    const openPending = claims.filter((claim) => claim.status === 'pending');
+    if (openPending.length) {
+      try {
+        const recent = await server.operations().forAccount(address).order('desc').limit(10).call();
+        for (const record of openPending) {
+          // The app only ever parks PLUNCH for a wallet, so a claim of any balance
+          // after a pending record was opened is that drop being collected.
+          const claimOp = (recent.records || []).find(
+            (op) =>
+              op.type === 'claim_claimable_balance' &&
+              new Date(op.created_at) >= new Date(record.created_date)
+          );
+          if (!claimOp) continue;
+          record.status = 'paid';
+          record.tx_hash = claimOp.transaction_hash;
+          await base44.asServiceRole.entities.PlunchClaim.update(record.id, {
+            status: 'paid',
+            tx_hash: claimOp.transaction_hash,
+          });
+        }
+      } catch {
+        /* chain read is best effort */
+      }
+    }
+
     const lastPaid = claims.find((claim) => claim.status === 'paid');
     const lastPaidAt = lastPaid ? new Date(lastPaid.created_date).getTime() : 0;
     const nextAt = lastPaidAt ? lastPaidAt + CLAIM_WINDOW_MS : 0;
@@ -91,24 +120,30 @@ export default async function (req) {
       if (!txHash) {
         return reply({ error: 'Missing the claim transaction.' }, 400);
       }
-      const open = await base44.asServiceRole.entities.PlunchClaim.filter(
-        { wallet_address: address, status: 'pending' },
-        { sort: '-created_date', limit: 1 }
-      );
-      const pending = open?.items?.[0];
-      if (!pending) {
-        return reply({ error: 'No drop is waiting for this wallet.' }, 404);
+      const readTx = () => server.transactions().transaction(txHash).catch(() => null);
+      // Horizon indexes a submitted transaction a ledger or two after it lands, so
+      // the report is given a moment instead of failing on that race.
+      let tx = await readTx();
+      for (let i = 0; i < 4 && !tx; i += 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+        tx = await readTx();
       }
-      const tx = await server.transactions().transaction(txHash).catch(() => null);
       if (!tx || tx.successful !== true) {
         return reply({ error: 'That claim is not on chain yet. Try again in a moment.' }, 409);
       }
-      await base44.asServiceRole.entities.PlunchClaim.update(pending.id, {
-        status: 'paid',
-        tx_hash: txHash,
-      });
+      const openRecord = await base44.asServiceRole.entities.PlunchClaim.filter(
+        { wallet_address: address, status: 'pending' },
+        { sort: '-created_date', limit: 1 }
+      );
+      const pending = openRecord?.items?.[0];
+      if (pending) {
+        await base44.asServiceRole.entities.PlunchClaim.update(pending.id, {
+          status: 'paid',
+          tx_hash: txHash,
+        });
+      }
       return reply({
-        amount: pending.amount || drop,
+        amount: pending?.amount || drop,
         tx_hash: txHash,
         claimed_at: new Date().toISOString(),
         next_at: new Date(Date.now() + CLAIM_WINDOW_MS).toISOString(),
@@ -118,8 +153,30 @@ export default async function (req) {
     if (waiting) {
       return reply({ error: 'This wallet already claimed today.', next_at: new Date(nextAt).toISOString() }, 429);
     }
+    // One drop per wallet. A balance already parked for this wallet IS today's drop:
+    // it is handed back so the wallet claims it in a single approval, whether or not
+    // the line is open yet. Parking or paying a second one is what paid a wallet twice.
+    const asset = new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER);
+    let parkedId = null;
+    let parkedAmount = 0;
+    try {
+      const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
+      const match = (parked?.records || []).find((b) => parseFloat(b.amount) > 0);
+      parkedId = match?.id || null;
+      parkedAmount = match ? Math.floor(parseFloat(match.amount)) : 0;
+    } catch {
+      /* nothing readable — the normal path below decides */
+    }
+    if (parkedId) {
+      return reply({
+        amount: parkedAmount || drop,
+        trustline_required: !hasTrustline,
+        claimable_balance_id: parkedId,
+      });
+    }
+
     if (locked) {
-      return reply({ error: 'A claim from this wallet is already being processed.' }, 429);
+      return reply({ error: 'Your last claim is still settling. Try again in a minute.' }, 429);
     }
     if (drop < 1) {
       return reply({ error: 'The daily PLUNCH pool is empty right now.' }, 503);
@@ -128,75 +185,62 @@ export default async function (req) {
     // No PLUNCH line yet: the drop is parked in a claimable balance for this wallet,
     // which can then open the line and receive it in ONE signed transaction.
     if (!hasTrustline) {
-      const asset = new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER);
-
-      // A drop already parked for this wallet is reused, never doubled up.
       let balanceId = null;
-      try {
-        const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
-        const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= drop);
-        balanceId = match?.id || null;
-      } catch {
-        /* no parked drop readable — park a fresh one below */
+      const claim = await base44.asServiceRole.entities.PlunchClaim.create({
+        wallet_address: address,
+        amount: drop,
+        status: 'pending',
+      });
+
+      let result = null;
+      let failure = null;
+      for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+        try {
+          const source = attempt === 0 ? funderAccount : await server.loadAccount(funder.publicKey());
+          const transaction = new StellarSdk.TransactionBuilder(source, {
+            fee: StellarSdk.BASE_FEE,
+            networkPassphrase: NETWORK_PASSPHRASE,
+          })
+            .addOperation(
+              StellarSdk.Operation.createClaimableBalance({
+                asset,
+                amount: String(drop),
+                claimants: [new StellarSdk.Claimant(address)],
+              })
+            )
+            .addMemo(StellarSdk.Memo.text('PLUNCH daily reward'))
+            .setTimeout(180)
+            .build();
+          transaction.sign(funder);
+          result = await server.submitTransaction(transaction);
+        } catch (error) {
+          failure = error;
+          const code = error?.response?.data?.extras?.result_codes?.transaction;
+          if (code !== 'tx_bad_seq') break;
+        }
       }
 
+      if (!result) {
+        await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
+        const codes = failure?.response?.data?.extras?.result_codes;
+        const detail = codes?.operations?.join(', ') || codes?.transaction || failure?.message;
+        return reply({ error: `The drop could not be reserved (${detail}). Nothing was sent.` }, 502);
+      }
+
+      // Horizon indexes the new balance a beat after the ledger closes.
+      for (let i = 0; i < 5 && !balanceId; i += 1) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 1200));
+        try {
+          const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
+          const match = (parked?.records || []).find((b) => parseFloat(b.amount) > 0);
+          balanceId = match?.id || null;
+        } catch {
+          /* try again */
+        }
+      }
       if (!balanceId) {
-        const claim = await base44.asServiceRole.entities.PlunchClaim.create({
-          wallet_address: address,
-          amount: drop,
-          status: 'pending',
-        });
-
-        let result = null;
-        let failure = null;
-        for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
-          try {
-            const source = attempt === 0 ? funderAccount : await server.loadAccount(funder.publicKey());
-            const transaction = new StellarSdk.TransactionBuilder(source, {
-              fee: StellarSdk.BASE_FEE,
-              networkPassphrase: NETWORK_PASSPHRASE,
-            })
-              .addOperation(
-                StellarSdk.Operation.createClaimableBalance({
-                  asset,
-                  amount: String(drop),
-                  claimants: [new StellarSdk.Claimant(address)],
-                })
-              )
-              .addMemo(StellarSdk.Memo.text('PLUNCH daily reward'))
-              .setTimeout(180)
-              .build();
-            transaction.sign(funder);
-            result = await server.submitTransaction(transaction);
-          } catch (error) {
-            failure = error;
-            const code = error?.response?.data?.extras?.result_codes?.transaction;
-            if (code !== 'tx_bad_seq') break;
-          }
-        }
-
-        if (!result) {
-          await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
-          const codes = failure?.response?.data?.extras?.result_codes;
-          const detail = codes?.operations?.join(', ') || codes?.transaction || failure?.message;
-          return reply({ error: `The drop could not be reserved (${detail}). Nothing was sent.` }, 502);
-        }
-
-        // Horizon indexes the new balance a beat after the ledger closes.
-        for (let i = 0; i < 5 && !balanceId; i += 1) {
-          if (i > 0) await new Promise((r) => setTimeout(r, 1200));
-          try {
-            const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
-            const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= drop);
-            balanceId = match?.id || null;
-          } catch {
-            /* try again */
-          }
-        }
-        if (!balanceId) {
-          await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
-          return reply({ error: 'The drop was reserved but not readable yet. Try again in a moment.' }, 502);
-        }
+        await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
+        return reply({ error: 'The drop was reserved but not readable yet. Try again in a moment.' }, 502);
       }
 
       return reply({

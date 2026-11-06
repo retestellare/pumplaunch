@@ -11,14 +11,18 @@ export async function claimDropWithTrustline({ walletAddress, balanceId }) {
   const account = await loadAccount(walletAddress);
   if (!account) throw new Error('This wallet has no activity on Stellar mainnet yet.');
 
-  const transaction = new StellarSdk.TransactionBuilder(account, {
+  const holdsLine = (account.balances || []).some(
+    (line) => line.asset_code === PLUNCH_CODE && line.asset_issuer === PLUNCH_ISSUER
+  );
+
+  const builder = new StellarSdk.TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(StellarSdk.Operation.changeTrust({ asset: PLUNCH_ASSET }))
-    .addOperation(StellarSdk.Operation.claimClaimableBalance({ balanceId }))
-    .setTimeout(180)
-    .build();
+  });
+  // The line is opened only when it is missing, so this one approval works the same
+  // for a wallet that already holds PLUNCH and one that does not.
+  if (!holdsLine) builder.addOperation(StellarSdk.Operation.changeTrust({ asset: PLUNCH_ASSET }));
+  builder.addOperation(StellarSdk.Operation.claimClaimableBalance({ balanceId }));
 
-  return signAndSubmit(transaction);
+  return signAndSubmit(builder.setTimeout(180).build());
 }
