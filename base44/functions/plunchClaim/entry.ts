@@ -32,7 +32,7 @@ export default async function (req) {
   try {
     const base44 = createClientFromRequest(req);
     const body = await req.json().catch(() => ({}));
-    const action = body.action === 'status' ? 'status' : 'claim';
+    const action = ['status', 'confirm'].includes(body.action) ? body.action : 'claim';
     const address = String(body.wallet_address || '').trim();
 
     if (!StellarSdk.StrKey.isValidEd25519PublicKey(address)) {
@@ -80,9 +80,37 @@ export default async function (req) {
       });
     }
 
-    if (!hasTrustline) {
-      return reply({ error: 'Add the PLUNCH trustline to this wallet first.' }, 400);
+    // A wallet that signed the combined trustline + claim transaction reports it
+    // here, so the 24-hour window starts from the drop actually landing.
+    if (action === 'confirm') {
+      const txHash = String(body.tx_hash || '').trim();
+      if (!txHash) {
+        return reply({ error: 'Missing the claim transaction.' }, 400);
+      }
+      const open = await base44.asServiceRole.entities.PlunchClaim.filter(
+        { wallet_address: address, status: 'pending' },
+        { sort: '-created_date', limit: 1 }
+      );
+      const pending = open?.items?.[0];
+      if (!pending) {
+        return reply({ error: 'No drop is waiting for this wallet.' }, 404);
+      }
+      const tx = await server.transactions().transaction(txHash).catch(() => null);
+      if (!tx || tx.successful !== true) {
+        return reply({ error: 'That claim is not on chain yet. Try again in a moment.' }, 409);
+      }
+      await base44.asServiceRole.entities.PlunchClaim.update(pending.id, {
+        status: 'paid',
+        tx_hash: txHash,
+      });
+      return reply({
+        amount: REWARD_AMOUNT,
+        tx_hash: txHash,
+        claimed_at: new Date().toISOString(),
+        next_at: new Date(Date.now() + CLAIM_WINDOW_MS).toISOString(),
+      });
     }
+
     if (waiting) {
       return reply({ error: 'This wallet already claimed today.', next_at: new Date(nextAt).toISOString() }, 429);
     }
@@ -91,6 +119,87 @@ export default async function (req) {
     }
     if (pool < REWARD_AMOUNT) {
       return reply({ error: 'The daily PLUNCH pool is empty right now.' }, 503);
+    }
+
+    // No PLUNCH line yet: the drop is parked in a claimable balance for this wallet,
+    // which can then open the line and receive it in ONE signed transaction.
+    if (!hasTrustline) {
+      const asset = new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER);
+
+      // A drop already parked for this wallet is reused, never doubled up.
+      let balanceId = null;
+      try {
+        const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
+        const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= REWARD_AMOUNT);
+        balanceId = match?.id || null;
+      } catch {
+        /* no parked drop readable — park a fresh one below */
+      }
+
+      if (!balanceId) {
+        const claim = await base44.asServiceRole.entities.PlunchClaim.create({
+          wallet_address: address,
+          amount: REWARD_AMOUNT,
+          status: 'pending',
+        });
+
+        let result = null;
+        let failure = null;
+        for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+          try {
+            const source = attempt === 0 ? funderAccount : await server.loadAccount(funder.publicKey());
+            const transaction = new StellarSdk.TransactionBuilder(source, {
+              fee: StellarSdk.BASE_FEE,
+              networkPassphrase: NETWORK_PASSPHRASE,
+            })
+              .addOperation(
+                StellarSdk.Operation.createClaimableBalance({
+                  asset,
+                  amount: String(REWARD_AMOUNT),
+                  claimants: [new StellarSdk.Claimant(address)],
+                })
+              )
+              .addMemo(StellarSdk.Memo.text('PLUNCH daily reward'))
+              .setTimeout(180)
+              .build();
+            transaction.sign(funder);
+            result = await server.submitTransaction(transaction);
+          } catch (error) {
+            failure = error;
+            const code = error?.response?.data?.extras?.result_codes?.transaction;
+            if (code !== 'tx_bad_seq') break;
+          }
+        }
+
+        if (!result) {
+          await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
+          const codes = failure?.response?.data?.extras?.result_codes;
+          const detail = codes?.operations?.join(', ') || codes?.transaction || failure?.message;
+          return reply({ error: `The drop could not be reserved (${detail}). Nothing was sent.` }, 502);
+        }
+
+        // Horizon indexes the new balance a beat after the ledger closes.
+        for (let i = 0; i < 5 && !balanceId; i += 1) {
+          if (i > 0) await new Promise((r) => setTimeout(r, 1200));
+          try {
+            const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
+            const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= REWARD_AMOUNT);
+            balanceId = match?.id || null;
+          } catch {
+            /* try again */
+          }
+        }
+        if (!balanceId) {
+          await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
+          return reply({ error: 'The drop was reserved but not readable yet. Try again in a moment.' }, 502);
+        }
+      }
+
+      return reply({
+        amount: REWARD_AMOUNT,
+        trustline_required: true,
+        claimable_balance_id: balanceId,
+      });
     }
 
     // Written before the payment leaves, so a second tap finds the slot taken.

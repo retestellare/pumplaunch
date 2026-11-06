@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Check, ExternalLink, Loader2, Rocket } from 'lucide-react';
+import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import { useWallet } from '@/lib/wallet';
+import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
 
 const REWARD = 90000;
@@ -78,24 +79,45 @@ export default function DailyPlunchClaim() {
     inFlight.current = true;
     setPhase('claiming');
     setError('');
-    const { data, error: failure } = await invoke({
-      action: 'claim',
-      wallet_address: wallet.address,
-    });
-    if (failure) {
-      setPhase('idle');
-      setError(failure);
-      setStatus(null);
-    } else {
-      setTxHash(data?.tx_hash || '');
-      const unlockedAt = data?.next_at ? new Date(data.next_at).toISOString() : null;
+    try {
+      const { data, error: failure } = await invoke({
+        action: 'claim',
+        wallet_address: wallet.address,
+      });
+      if (failure) throw new Error(failure);
+
+      let hash = data?.tx_hash || '';
+      let unlockedAt = data?.next_at ? new Date(data.next_at).toISOString() : null;
+
+      // No PLUNCH line yet: the drop is parked and the wallet signs ONE transaction
+      // that opens the trustline and claims it into the same wallet.
+      if (data?.claimable_balance_id) {
+        const result = await claimDropWithTrustline({
+          walletAddress: wallet.address,
+          balanceId: data.claimable_balance_id,
+        });
+        hash = result?.hash || hash;
+        const { data: confirmed, error: confirmFailure } = await invoke({
+          action: 'confirm',
+          wallet_address: wallet.address,
+          tx_hash: hash,
+        });
+        if (confirmFailure) throw new Error(confirmFailure);
+        if (confirmed?.next_at) unlockedAt = new Date(confirmed.next_at).toISOString();
+      }
+
+      setTxHash(hash);
       setStatus((prev) =>
-        prev ? { ...prev, eligible: false, next_at: unlockedAt } : prev
+        prev ? { ...prev, eligible: false, trustline: true, next_at: unlockedAt } : prev
       );
       setPhase('sent');
+    } catch (err) {
+      setPhase('idle');
+      setError(err?.message || 'The claim did not go through.');
+    } finally {
+      inFlight.current = false;
     }
-    inFlight.current = false;
-  }, [wallet?.address, load]);
+  }, [wallet?.address]);
 
   // A lock that has already run out is not a countdown: it means the status on
   // screen is stale, so the card asks again instead of sitting on 00:00:00.
@@ -151,7 +173,21 @@ export default function DailyPlunchClaim() {
       </>
     );
   } else if (status?.trustline === false) {
-    noteNode = <>This wallet has no PLUNCH trustline yet. Add PLUNCH in your wallet to receive the daily drop.</>;
+    if (poolShort) {
+      actionNode = (
+        <button onClick={load} className={ghost}>
+          Check again
+        </button>
+      );
+      noteNode = <>The daily PLUNCH pool is refilling — no drop available right now.</>;
+    } else {
+      actionNode = (
+        <button onClick={claim} className={primary}>
+          Request {AMOUNT_LABEL}
+        </button>
+      );
+      noteNode = <>One approval opens your PLUNCH trustline and receives the drop in the same transaction.</>;
+    }
   } else if (status?.eligible) {
     actionNode = (
       <button onClick={claim} className={primary}>
@@ -192,8 +228,8 @@ export default function DailyPlunchClaim() {
   return (
     <div className="rounded-[14px] border border-[#00F59B]/25 bg-[linear-gradient(135deg,#101a17,#101816)] px-3 py-2.5 shadow-[0_0_24px_rgba(0,245,155,.09)]">
       <div className="flex items-center gap-2.5">
-        <span className="w-8 h-8 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex items-center justify-center shrink-0">
-          <Rocket size={15} />
+        <span className="h-8 px-2 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex items-center justify-center shrink-0 font-display text-[8px] leading-none tracking-[.06em] [text-shadow:0_0_10px_rgba(0,245,155,.45)]">
+          PLUNCH
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-[8px] font-black uppercase tracking-[.12em] text-[#F2F7F4]/45">Daily PLUNCH drop</p>

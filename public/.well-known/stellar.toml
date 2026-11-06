@@ -9,6 +9,13 @@ ORG_DESCRIPTION="Stellar Pump — launch and trade memecoins and NFT collections
 ORG_KEYWORDS="stellar, memecoin, nft, launchpad, xlm, dex"
 
 [[CURRENCIES]]
+code="QTCM"
+issuer="GBXZ7KXO3W6PQLV5FTEJYH6TDFYIJKVMVX3YX7PR7KULY6ARE6Y2RBIP"
+name="Qunantum"
+desc="Quantico (Token) is a cryptocurrency with a futuristic design, inspired by the principles of quantum physics and advanced technology. Its logo depicts a stylized atom with luminous orbits, embedded in a digital coin that symbolizes innovation, security, and the computing power of the future."
+image="https://base44.app/api/apps/6aa9bbacb0994d71286ed596/files/mp/public/6aa9bbacb0994d71286ed596/3f6b14ba7_34248.png"
+
+[[CURRENCIES]]
 code="PLOCK"
 issuer="GADMVBT5SWY7JPJ2DZCLKPAM6EJY5W7VTV4NHR4FFG26SWNC2553X4LD"
 name="Pump lock"
