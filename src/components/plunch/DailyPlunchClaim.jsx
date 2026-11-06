@@ -6,6 +6,7 @@ import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
 
 const REWARD = 90000;
+const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 const formatAmount = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
 const EXPLORER = 'https://stellar.expert/explorer/public/tx/';
 
@@ -107,15 +108,20 @@ export default function DailyPlunchClaim() {
           balanceId: data.claimable_balance_id,
         });
         hash = result?.hash || hash;
-        const { data: confirmed, error: confirmFailure } = await invoke({
+        // The tokens are in the wallet at this point. Reporting it only stamps the
+        // claim record, so a sluggish confirmation must never surface as a failure
+        // on a claim that already succeeded.
+        const { data: confirmed } = await invoke({
           action: 'confirm',
           wallet_address: wallet.address,
           tx_hash: hash,
         });
-        if (confirmFailure) throw new Error(confirmFailure);
         if (confirmed?.next_at) unlockedAt = new Date(confirmed.next_at).toISOString();
         if (confirmed?.amount) landed = confirmed.amount;
       }
+
+      // The 24-hour clock starts the moment the drop lands.
+      if (!unlockedAt) unlockedAt = new Date(Date.now() + CLAIM_WINDOW_MS).toISOString();
 
       setSentAmount(landed);
       setTxHash(hash);

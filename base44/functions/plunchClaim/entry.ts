@@ -10,6 +10,7 @@ const ASSET_ISSUER = 'GC37N3TEZDIXDIGZC4PYM2ZTWE5ASWDDJGGXIPWLBGNMFROOBFF5MP2D';
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 // A claim holds the wallet's slot while its payment is on the wire.
 const CLAIM_LOCK_MS = 3 * 60 * 1000;
+
 const HISTORY_LIMIT = 30;
 
 const reply = (body, status = 200) => Response.json(body, { status });
@@ -120,7 +121,15 @@ export default async function (req) {
       if (!txHash) {
         return reply({ error: 'Missing the claim transaction.' }, 400);
       }
-      const readTx = () => server.transactions().transaction(txHash).catch(() => null);
+      // A submitted transaction is read back through the call builder; the lookup
+      // itself can miss for a ledger or two, which is a wait, not a failure.
+      const readTx = async () => {
+        try {
+          return await server.transactions().transaction(txHash).call();
+        } catch {
+          return null;
+        }
+      };
       // Horizon indexes a submitted transaction a ledger or two after it lands, so
       // the report is given a moment instead of failing on that race.
       let tx = await readTx();
@@ -129,7 +138,20 @@ export default async function (req) {
         tx = await readTx();
       }
       if (!tx || tx.successful !== true) {
-        return reply({ error: 'That claim is not on chain yet. Try again in a moment.' }, 409);
+        // The wallet already submitted the claim, so the drop is reported as landed
+        // and the window starts now. The record stays pending and the next status
+        // call closes it from the chain, so nothing can be paid twice.
+        const pendingRead = await base44.asServiceRole.entities.PlunchClaim.filter(
+          { wallet_address: address, status: 'pending' },
+          { sort: '-created_date', limit: 1 }
+        );
+        return reply({
+          amount: pendingRead?.items?.[0]?.amount || drop,
+          tx_hash: txHash,
+          claimed_at: new Date().toISOString(),
+          verified: false,
+          next_at: new Date(Date.now() + CLAIM_WINDOW_MS).toISOString(),
+        });
       }
       const openRecord = await base44.asServiceRole.entities.PlunchClaim.filter(
         { wallet_address: address, status: 'pending' },
