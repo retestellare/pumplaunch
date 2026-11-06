@@ -2,6 +2,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import {
   BASE_FEE,
   BASE_PRICE,
+  HOME_DOMAIN,
   NETWORK_PASSPHRASE,
   bytesToHex,
   fetchPoolFor,
@@ -74,9 +75,12 @@ export function vaultFunding(deposit, quote) {
   return VAULT_RESERVE_XLM + (quote === 'usdc' ? 0 : parseFloat(deposit) || 0);
 }
 
-export function newVaultKeypair() {
+// Fresh mainnet keypairs for the issuing account and the vault.
+export function newLaunchKeypair() {
   return StellarSdk.Keypair.random();
 }
+
+export const newVaultKeypair = newLaunchKeypair;
 
 // 1. The vault is a separate account funded by the creator, so the deposit never
 //    sits on a wallet that can still sign for it.
@@ -191,4 +195,102 @@ export async function readVaultState({ vaultAddress, assetCode, issuer, quote = 
     quoteBalance,
     pool,
   };
+}
+
+// The whole locked launch in ONE transaction envelope, so the wallet is asked for a
+// single signature instead of three. The issuing and vault keys are applied here —
+// the app holds them, so the wallet only signs for the part that is genuinely the
+// user's: funding the launch and letting the deposit go for good.
+export function buildLockedLaunchTransaction({
+  sourceAccount,
+  assetCode,
+  homeDomain,
+  issuerKeypair,
+  vaultKeypair,
+  quote = 'xlm',
+  deposit,
+  vaultTokens,
+  creatorTokens,
+  issuerReserve,
+  vaultStartingBalance,
+}) {
+  const issuer = issuerKeypair.publicKey();
+  const vault = vaultKeypair.publicKey();
+  const user = sourceAccount.accountId();
+  const asset = new StellarSdk.Asset(assetCode, issuer);
+  const { poolAsset, quoteFirst } = poolShareInfo(assetCode, issuer, quote);
+  const poolId = bytesToHex(
+    StellarSdk.getLiquidityPoolId('constant_product', poolAsset.getLiquidityPoolParameters())
+  );
+  const amount = parseFloat(deposit) || 0;
+  const lockedTokens = parseFloat(vaultTokens) || 0;
+  const keptTokens = parseFloat(creatorTokens) || 0;
+
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, txOptions);
+
+  // 1. The issuing account and the user's trustline.
+  tx.addOperation(
+    StellarSdk.Operation.createAccount({
+      destination: issuer,
+      startingBalance: formatAmount(issuerReserve),
+    })
+  );
+  tx.addOperation(StellarSdk.Operation.changeTrust({ asset }));
+
+  // 2. The vault account, funded with its reserves and the XLM deposit.
+  tx.addOperation(
+    StellarSdk.Operation.createAccount({
+      destination: vault,
+      startingBalance: formatAmount(vaultStartingBalance),
+    })
+  );
+  if (quote === 'usdc') {
+    tx.addOperation(StellarSdk.Operation.changeTrust({ source: vault, asset: quoteAsset('usdc') }));
+  }
+  tx.addOperation(StellarSdk.Operation.changeTrust({ source: vault, asset }));
+  tx.addOperation(StellarSdk.Operation.changeTrust({ source: vault, asset: poolAsset }));
+  if (quote === 'usdc' && amount > 0) {
+    tx.addOperation(
+      StellarSdk.Operation.payment({
+        destination: vault,
+        asset: quoteAsset('usdc'),
+        amount: formatAmount(amount),
+      })
+    );
+  }
+
+  // 3. The supply: the creator's half lands in their wallet, the matched half and
+  //    the deposit in the vault. Minting here is what removes a whole approval.
+  if (keptTokens > 0) {
+    tx.addOperation(
+      StellarSdk.Operation.payment({ source: issuer, destination: user, asset, amount: formatAmount(keptTokens) })
+    );
+  }
+  tx.addOperation(
+    StellarSdk.Operation.payment({ source: issuer, destination: vault, asset, amount: formatAmount(lockedTokens) })
+  );
+
+  // 4. The lock: the deposit enters the pool, then both accounts lose their only
+  //    signer. The issuer lock trails its payments because nothing can be signed
+  //    for it afterwards.
+  tx.addOperation(
+    StellarSdk.Operation.setOptions({ source: issuer, homeDomain: homeDomain || HOME_DOMAIN, masterWeight: 0 })
+  );
+  tx.addOperation(
+    StellarSdk.Operation.liquidityPoolDeposit({
+      source: vault,
+      liquidityPoolId: poolId,
+      maxAmountA: formatAmount(quoteFirst ? amount : lockedTokens),
+      maxAmountB: formatAmount(quoteFirst ? lockedTokens : amount),
+      minPrice: { n: 1, d: 100000000 },
+      maxPrice: { n: 1, d: 1000 },
+    })
+  );
+  tx.addOperation(StellarSdk.Operation.setOptions({ source: vault, masterWeight: 0 }));
+
+  // Both app-held keys sign now; the wallet adds the last signature and submits.
+  const built = tx.setTimeout(300).build();
+  built.sign(issuerKeypair);
+  built.sign(vaultKeypair);
+  return built;
 }

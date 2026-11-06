@@ -164,15 +164,12 @@ const LOCKED = {
       ],
     },
     {
-      title: 'Every wallet approval, in order',
+      title: 'One wallet approval',
       items: [
-        '1 — Issuer account and your trustline: one wallet approval.',
-        '2 — Tokens issued by the new issuer key, signed by the app: no prompt.',
-        '3 — Vault creation, funded with ~3 XLM reserve plus the deposit when it is in XLM: one wallet approval.',
-        '4 — Vault trustlines, signed by the vault key: no prompt.',
-        '5 — Moving the tokens and any USDC into the vault: one wallet approval.',
-        '6 — Pool deposit plus the signer lock, signed by the vault key: no prompt.',
-        'So a fresh XLM launch typically asks for 3 approvals. Fewer appear when work was already done — a resumed launch skips finished stages, and reusing a symbol you already hold skips the issuer stages entirely.',
+        '1 — A fresh launch is a single approval: the issuing account, your trustline, the vault, the token mint, the pool deposit and the permanent lock all travel in one transaction.',
+        '2 — The issuing key and the vault key sign that same transaction, so neither ever asks you for anything.',
+        '3 — Only if your wallet cannot sign the combined request does the launch fall back to three approvals: setup, vault creation, then moving the deposit in — nothing is lost either way.',
+        'A resumed launch skips whatever already reached the chain, and reusing a symbol you already hold skips the issuer stages entirely.',
       ],
     },
     {

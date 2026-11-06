@@ -50,14 +50,18 @@ import {
   clearAttempt,
   getIssuerSecret,
   getVaultSecret,
+  setIssuerSecret,
   setVaultSecret,
 } from '@/lib/launchAttempts';
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
 import LockedLiquidityForm from '@/components/launch/LockedLiquidityForm';
+import SingleApprovalCard from '@/components/launch/SingleApprovalCard';
 import {
   planLockedLaunch,
   vaultFunding,
+  newLaunchKeypair,
   newVaultKeypair,
+  buildLockedLaunchTransaction,
   buildVaultCreationTransaction,
   buildVaultTrustTransaction,
   buildVaultFundingTransfer,
@@ -407,9 +411,105 @@ export default function LaunchToken() {
         saveAttempt(store);
       }
 
+      // A locked launch with nothing on chain yet goes out as ONE transaction: the
+      // wallet signs once and the issuing account, the supply, the vault, the pool
+      // deposit and the lock all happen inside that same envelope.
+      const bundleLocked =
+        isLocked && !store.reused_asset && !store.issuer_public_key && !store.vault_public_key && !store.bundled;
+
+      if (bundleLocked) {
+        const bundleQuote = store.locked_quote === 'usdc' ? 'usdc' : 'xlm';
+        const deposit = parseFloat(store.locked_deposit) || 0;
+        const issuerKp = newLaunchKeypair();
+        const vaultKp = newLaunchKeypair();
+
+        store.issuer_public_key = issuerKp.publicKey();
+        store.issuer_secret = issuerKp.secret();
+        store.vault_public_key = vaultKp.publicKey();
+        setIssuerSecret(wallet.address, sym, issuerKp.secret());
+        setVaultSecret(wallet.address, sym, vaultKp.secret());
+        saveAttempt(store);
+        setAttempt({ ...store });
+
+        setStage('issuer', 'Approve once in your wallet…');
+        setWaiting(true);
+        try {
+          await submitWithRetry(
+            async () => {
+              const userAccount = await loadAccount(wallet.address);
+              return buildLockedLaunchTransaction({
+                sourceAccount: userAccount,
+                assetCode: sym,
+                homeDomain,
+                issuerKeypair: issuerKp,
+                vaultKeypair: vaultKp,
+                quote: bundleQuote,
+                deposit,
+                vaultTokens: parseFloat(store.vault_tokens) || 0,
+                creatorTokens: parseFloat(store.creator_allocation) || 0,
+                issuerReserve: cost.issuerReserveXlm,
+                vaultStartingBalance: vaultFunding(deposit, bundleQuote),
+              });
+            },
+            signAndSubmit,
+            {
+              onRetry: (i, max) => {
+                setRetrying(true);
+                setStage('issuer', `Retrying (${i}/${max})…`);
+              },
+              verify: async () => {
+                const state = await readVaultState({
+                  vaultAddress: vaultKp.publicKey(),
+                  assetCode: sym,
+                  issuer: issuerKp.publicKey(),
+                  quote: bundleQuote,
+                });
+                return state.locked && !!state.pool;
+              },
+            }
+          );
+          store.bundled = true;
+          saveAttempt(store);
+          setAttempt({ ...store });
+          setStepStatus('issuer', 'done');
+          setStage('issue', 'Supply minted in the same approval');
+          setStepStatus('issue', 'done');
+          setStage('liquidity', 'Pool seeded and locked in the same approval');
+          setStepStatus('liquidity', 'done');
+        } catch (e) {
+          await failStep(store, 'issuer', e);
+          throw new Error(
+            `${e?.message || e} Your wallet could not sign the combined request — tap Resume and the launch finishes with the remaining approvals one at a time.`
+          );
+        } finally {
+          setWaiting(false);
+          setRetrying(false);
+        }
+      }
+
+      // A locked launch that already reached the chain needs no further approval:
+      // its vault has no signers left and its pool is live.
+      let setupDone = bundleLocked || !!store.bundled || store.reused_asset;
+      if (!setupDone && isLocked && store.vault_public_key && store.issuer_public_key) {
+        const state = await readVaultState({
+          vaultAddress: store.vault_public_key,
+          assetCode: sym,
+          issuer: store.issuer_public_key,
+          quote: store.locked_quote === 'usdc' ? 'usdc' : 'xlm',
+        }).catch(() => null);
+        setupDone = !!(state && state.locked && state.pool);
+      }
+
       // Step 1: Create issuer account + trustline
-      setStage('issuer', store.reused_asset ? 'Existing token — skipped' : 'Creating issuer account…');
-      if (store.reused_asset) {
+      setStage(
+        'issuer',
+        setupDone
+          ? store.reused_asset
+            ? 'Existing token — skipped'
+            : 'Done in the single approval'
+          : 'Creating issuer account…'
+      );
+      if (setupDone) {
         setStepStatus('issuer', 'done');
       } else {
         const issuerPk = store.issuer_public_key || store.issuerPublicKey;
@@ -463,8 +563,15 @@ export default function LaunchToken() {
       }
 
       // Step 2: Issue tokens
-      setStage('issue', store.reused_asset ? 'Existing token — skipped' : 'Issuing tokens…');
-      if (store.reused_asset) {
+      setStage(
+        'issue',
+        setupDone
+          ? store.reused_asset
+            ? 'Existing token — skipped'
+            : 'Minted in the single approval'
+          : 'Issuing tokens…'
+      );
+      if (setupDone) {
         setStepStatus('issue', 'done');
       } else {
         const p2 = await verifyLaunchProgress({ walletAddress: wallet.address, issuerPublicKey: store.issuer_public_key, assetCode: sym, isAutoPool: store.auto_pool });
@@ -560,8 +667,15 @@ export default function LaunchToken() {
       };
 
       // Step 3: Seed liquidity
-      setStage('liquidity', store.reused_asset ? 'Existing token — skipped' : 'Seeding liquidity…');
-      if (store.reused_asset) {
+      setStage(
+        'liquidity',
+        setupDone
+          ? store.reused_asset
+            ? 'Existing token — skipped'
+            : 'Locked in the single approval'
+          : 'Seeding liquidity…'
+      );
+      if (setupDone) {
         setStepStatus('liquidity', 'done');
       } else if (isLocked) {
         const quote = store.locked_quote === 'usdc' ? 'usdc' : 'xlm';
@@ -1351,7 +1465,11 @@ export default function LaunchToken() {
         </div>
       ) : step === 'confirm' ? (
         <div className="p-4 space-y-4">
-          <LaunchStepTracker steps={STEPS} currentStep="issuer" statuses={{}} />
+          {lockedMode ? (
+            <SingleApprovalCard unit={lockedUnit} />
+          ) : (
+            <LaunchStepTracker steps={STEPS} currentStep="issuer" statuses={{}} />
+          )}
           <div className="bg-[#141518] rounded-2xl p-4 space-y-3">
             <h3 className="font-bold">Confirm Mainnet Launch</h3>
             <div className="space-y-2 text-sm">
@@ -1484,7 +1602,7 @@ export default function LaunchToken() {
               disabled={loading}
               className="flex-1 py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
             >
-              {loading ? 'Launching…' : 'Confirm & Launch'}
+              {loading ? 'Launching…' : lockedMode ? 'Approve once & launch' : 'Confirm & Launch'}
             </button>
           </div>
         </div>
