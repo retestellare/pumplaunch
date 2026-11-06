@@ -6,7 +6,7 @@ import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
 
 const REWARD = 90000;
-const AMOUNT_LABEL = REWARD.toLocaleString('en-US');
+const formatAmount = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
 const EXPLORER = 'https://stellar.expert/explorer/public/tx/';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -38,9 +38,15 @@ export default function DailyPlunchClaim() {
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
   const [error, setError] = useState('');
   const [txHash, setTxHash] = useState('');
+  const [sentAmount, setSentAmount] = useState(REWARD);
   const [now, setNow] = useState(() => Date.now());
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
+
+  // The faucet reports the drop it can actually pay today, so the card never
+  // promises more than the wallet will receive.
+  const reward = status?.amount > 0 ? status.amount : REWARD;
+  const AMOUNT_LABEL = formatAmount(phase === 'sent' ? sentAmount : reward);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -90,6 +96,7 @@ export default function DailyPlunchClaim() {
       if (failure) throw new Error(failure);
 
       let hash = data?.tx_hash || '';
+      let landed = data?.amount || reward;
       let unlockedAt = data?.next_at ? new Date(data.next_at).toISOString() : null;
 
       // No PLUNCH line yet: the drop is parked and the wallet signs ONE transaction
@@ -107,8 +114,10 @@ export default function DailyPlunchClaim() {
         });
         if (confirmFailure) throw new Error(confirmFailure);
         if (confirmed?.next_at) unlockedAt = new Date(confirmed.next_at).toISOString();
+        if (confirmed?.amount) landed = confirmed.amount;
       }
 
+      setSentAmount(landed);
       setTxHash(hash);
       setStatus((prev) =>
         prev ? { ...prev, eligible: false, trustline: true, next_at: unlockedAt } : prev
@@ -120,12 +129,13 @@ export default function DailyPlunchClaim() {
     } finally {
       inFlight.current = false;
     }
-  }, [wallet?.address]);
+  }, [wallet?.address, reward]);
 
   // A lock that has already run out is not a countdown: it means the status on
   // screen is stale, so the card asks again instead of sitting on 00:00:00.
   const remaining = nextAt > now ? countdown(nextAt - now) : null;
-  const poolShort = status?.pool != null && status.pool < REWARD;
+  // Only a faucet with nothing at all to send leaves nothing to request.
+  const poolShort = status?.pool != null && status.pool < 1;
 
   // Two compact slots: the action sits beside the amount, the note runs under it.
   const pill =
@@ -150,7 +160,7 @@ export default function DailyPlunchClaim() {
       </span>
     );
   } else if (phase === 'sent') {
-    actionNode = <ShareReceiptButton amount={REWARD} />;
+    actionNode = <ShareReceiptButton amount={sentAmount} />;
     noteNode = (
       <>
         <span className="flex items-center gap-1 font-bold text-[#00F59B]">
@@ -189,7 +199,7 @@ export default function DailyPlunchClaim() {
           Request {AMOUNT_LABEL}
         </button>
       );
-      noteNode = <>One approval opens your PLUNCH trustline and receives the drop in the same transaction.</>;
+      noteNode = <>One approval opens your PLUNCH trustline and claims the drop in the same transaction.</>;
     }
   } else if (status?.eligible) {
     actionNode = (
@@ -200,7 +210,7 @@ export default function DailyPlunchClaim() {
     noteNode = <>Today&apos;s drop is ready — one tap sends it to your wallet.</>;
   } else if (status) {
     if (remaining) {
-      actionNode = <ShareReceiptButton amount={REWARD} />;
+      actionNode = <ShareReceiptButton amount={reward} />;
       noteNode = (
         <>
           Next drop in <span className="font-mono text-[11px] text-[#F2F7F4]/80">{remaining}</span>

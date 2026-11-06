@@ -68,14 +68,18 @@ export default async function (req) {
     const funder = StellarSdk.Keypair.fromSecret(secrets.get('PUMPLAUNCH_FUNDER_SECRET'));
     const funderAccount = await server.loadAccount(funder.publicKey());
     const pool = plunchBalance(funderAccount);
+    // The drop is the full reward while the faucet can cover it. When the pool runs
+    // low the claim still goes through for everything it holds, and the card shows
+    // that amount instead of a reward the wallet would never receive.
+    const drop = Math.min(REWARD_AMOUNT, Math.floor(pool));
 
     if (action === 'status') {
       return reply({
-        amount: REWARD_AMOUNT,
+        amount: drop,
         trustline: hasTrustline,
         balance: plunchBalance(account),
         pool,
-        eligible: hasTrustline && !waiting && !locked && pool >= REWARD_AMOUNT,
+        eligible: hasTrustline && !waiting && !locked && drop >= 1,
         next_at: waiting ? new Date(nextAt).toISOString() : null,
       });
     }
@@ -104,7 +108,7 @@ export default async function (req) {
         tx_hash: txHash,
       });
       return reply({
-        amount: REWARD_AMOUNT,
+        amount: pending.amount || drop,
         tx_hash: txHash,
         claimed_at: new Date().toISOString(),
         next_at: new Date(Date.now() + CLAIM_WINDOW_MS).toISOString(),
@@ -117,7 +121,7 @@ export default async function (req) {
     if (locked) {
       return reply({ error: 'A claim from this wallet is already being processed.' }, 429);
     }
-    if (pool < REWARD_AMOUNT) {
+    if (drop < 1) {
       return reply({ error: 'The daily PLUNCH pool is empty right now.' }, 503);
     }
 
@@ -130,7 +134,7 @@ export default async function (req) {
       let balanceId = null;
       try {
         const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
-        const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= REWARD_AMOUNT);
+        const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= drop);
         balanceId = match?.id || null;
       } catch {
         /* no parked drop readable — park a fresh one below */
@@ -139,7 +143,7 @@ export default async function (req) {
       if (!balanceId) {
         const claim = await base44.asServiceRole.entities.PlunchClaim.create({
           wallet_address: address,
-          amount: REWARD_AMOUNT,
+          amount: drop,
           status: 'pending',
         });
 
@@ -155,7 +159,7 @@ export default async function (req) {
               .addOperation(
                 StellarSdk.Operation.createClaimableBalance({
                   asset,
-                  amount: String(REWARD_AMOUNT),
+                  amount: String(drop),
                   claimants: [new StellarSdk.Claimant(address)],
                 })
               )
@@ -183,7 +187,7 @@ export default async function (req) {
           if (i > 0) await new Promise((r) => setTimeout(r, 1200));
           try {
             const parked = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
-            const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= REWARD_AMOUNT);
+            const match = (parked?.records || []).find((b) => parseFloat(b.amount) >= drop);
             balanceId = match?.id || null;
           } catch {
             /* try again */
@@ -196,7 +200,7 @@ export default async function (req) {
       }
 
       return reply({
-        amount: REWARD_AMOUNT,
+        amount: drop,
         trustline_required: true,
         claimable_balance_id: balanceId,
       });
@@ -205,7 +209,7 @@ export default async function (req) {
     // Written before the payment leaves, so a second tap finds the slot taken.
     const claim = await base44.asServiceRole.entities.PlunchClaim.create({
       wallet_address: address,
-      amount: REWARD_AMOUNT,
+      amount: drop,
       status: 'pending',
     });
 
@@ -225,7 +229,7 @@ export default async function (req) {
             StellarSdk.Operation.payment({
               destination: address,
               asset: new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER),
-              amount: String(REWARD_AMOUNT),
+              amount: String(drop),
             })
           )
           .addMemo(StellarSdk.Memo.text('PLUNCH daily reward'))
@@ -254,7 +258,7 @@ export default async function (req) {
     });
 
     return reply({
-      amount: REWARD_AMOUNT,
+      amount: drop,
       tx_hash: result.hash,
       claimed_at: new Date().toISOString(),
       next_at: new Date(Date.now() + CLAIM_WINDOW_MS).toISOString(),
