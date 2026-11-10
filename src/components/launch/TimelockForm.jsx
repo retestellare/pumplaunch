@@ -14,6 +14,10 @@ const MODE_CHOICES = [
 // How the pool shares are held: burned forever on a keyless vault, or handed to
 // the Soroban timelock contract with an unlock instant. The unlock date comes
 // from the last closed ledger and is shown before anything is signed.
+//
+// The timed option is only offered once a real contract address is configured in
+// src/lib/timelock.js. Until then this whole flow stays intact but hidden, and
+// pasting the address brings it back with no other change.
 export default function TimelockForm({
   mode,
   onMode,
@@ -28,31 +32,33 @@ export default function TimelockForm({
   disabled,
 }) {
   const sym = symbol || 'tokens';
-  const timeLocked = mode === 'timelock';
+  const timeLocked = mode === 'timelock' && configured;
 
   return (
     <div className="space-y-3 pt-1">
-      <div>
-        <label className="text-xs text-white/40 mb-1.5 block">Lock Type</label>
-        <div className="flex gap-1 p-1 rounded-xl bg-black/30">
-          {MODE_CHOICES.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => onMode(c.key)}
-              disabled={disabled}
-              className={`flex-1 py-2 rounded-lg transition duration-200 disabled:opacity-40 ${
-                mode === c.key ? 'bg-[#00ff88] text-black' : 'text-white/50 hover:text-white/80'
-              }`}
-            >
-              <span className="block text-xs font-bold">{c.label}</span>
-              <span className={`block text-[9px] mt-0.5 ${mode === c.key ? 'text-black/60' : 'text-white/30'}`}>
-                {c.hint}
-              </span>
-            </button>
-          ))}
+      {configured && (
+        <div>
+          <label className="text-xs text-white/40 mb-1.5 block">Lock Type</label>
+          <div className="flex gap-1 p-1 rounded-xl bg-black/30">
+            {MODE_CHOICES.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => onMode(c.key)}
+                disabled={disabled}
+                className={`flex-1 py-2 rounded-lg transition duration-200 disabled:opacity-40 ${
+                  mode === c.key ? 'bg-[#00ff88] text-black' : 'text-white/50 hover:text-white/80'
+                }`}
+              >
+                <span className="block text-xs font-bold">{c.label}</span>
+                <span className={`block text-[9px] mt-0.5 ${mode === c.key ? 'text-black/60' : 'text-white/30'}`}>
+                  {c.hint}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {timeLocked && (
         <>
@@ -154,8 +160,9 @@ export default function TimelockForm({
         <div className="flex items-start gap-2 rounded-xl bg-white/[.03] px-3 py-2">
           <Clock size={12} className="text-white/30 mt-0.5 shrink-0" />
           <p className="text-[10px] leading-relaxed text-white/40">
-            The pool shares go to a vault that loses its only signer, so the liquidity is unwithdrawable forever.
-            Pick Time lock instead if you want the deposit back on a known date.
+            {configured
+              ? 'The pool shares go to a vault that loses its only signer, so the liquidity is unwithdrawable forever. Pick Time lock instead if you want the deposit back on a known date.'
+              : 'The pool shares go to a vault that loses its only signer, so the liquidity is unwithdrawable forever.'}
           </p>
         </div>
       )}
