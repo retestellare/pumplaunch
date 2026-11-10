@@ -40,6 +40,21 @@ const plunchBalance = (account) => {
   return line ? parseFloat(line.balance) : 0;
 };
 
+// The X account the wallet's profile claims. The faucet keys its daily window on
+// it, so sending a fresh Stellar wallet cannot reopen the day.
+function xHandleOf(profile) {
+  const clean = String(profile?.x_handle || '')
+    .trim()
+    .replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//i, '')
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '')
+    .replace(/^@+/, '')
+    .trim();
+  return /^[A-Za-z0-9_]{1,15}$/.test(clean) ? clean.toLowerCase() : '';
+}
+
+const X_REQUIRED = 'To receive tokens, you must have profile X connected to the platform.';
+
 const PRICE_TTL_MS = 60 * 1000;
 let priceCache = { price: 0, at: 0 };
 
@@ -186,6 +201,15 @@ export default async function (req) {
     const server = new StellarSdk.Horizon.Server(HORIZON_URL);
     const claimsApi = base44.asServiceRole.entities.PlunchClaim;
 
+    // The X account this wallet's profile claims. It is the identity the daily
+    // window is charged to, so one X account gets one drop a day whatever wallets
+    // it rotates through.
+    const profilePage = await base44.asServiceRole.entities.Profile.filter(
+      { wallet_address: address },
+      { limit: 1 }
+    );
+    const xHandle = xHandleOf(profilePage?.items?.[0]);
+
     // The connection this request came from, as a keyed hash. No raw address is
     // ever written down.
     const network = await networkHash(req, funderSecret);
@@ -231,6 +255,15 @@ export default async function (req) {
       const networkNextAt = lastOnNetwork ? at(lastOnNetwork) + NETWORK_WINDOW_MS : 0;
       const networkWaiting = Boolean(lastOnNetwork);
 
+      // The 24-hour rule follows the X account, so a wallet swap inside the day
+      // finds the same closed window.
+      const xHistory = xHandle
+        ? await claimsApi.filter({ x_handle: xHandle }, { sort: '-created_date', limit: HISTORY_LIMIT })
+        : null;
+      const lastOnX = (xHistory?.items || []).find((claim) => at(claim) >= dayStart);
+      const xNextAt = lastOnX ? at(lastOnX) + CLAIM_WINDOW_MS : 0;
+      const xWaiting = Boolean(lastOnX);
+
       const funderAccount = await server.loadAccount(funderKey);
       const pool = plunchBalance(funderAccount);
       // The price sets the drop, not a fixed token count: the faucet pays what 0.1 XLM
@@ -249,15 +282,24 @@ export default async function (req) {
         trustline: hasTrustline,
         balance: plunchBalance(account),
         pool,
+        // Without a linked X account nothing is paid, so the card never offers a
+        // request it would have to refuse.
+        x_linked: Boolean(xHandle),
+        x_handle: xHandle || null,
+        x_next_at: xNextAt > Date.now() ? new Date(xNextAt).toISOString() : null,
         eligible:
           hasTrustline &&
+          Boolean(xHandle) &&
           !waiting &&
+          !xWaiting &&
           !networkWaiting &&
           !locked &&
           Date.now() >= faucetNextAt &&
           drop >= 1,
         next_at: waiting
           ? new Date(walletNextAt).toISOString()
+          : xWaiting
+          ? new Date(xNextAt).toISOString()
           : networkWaiting
           ? new Date(networkNextAt).toISOString()
           : null,
@@ -322,6 +364,11 @@ export default async function (req) {
     }
 
     // ── claim ────────────────────────────────────────────────────────────────
+    // No linked X account, no drop: checked before anything is reserved or sent.
+    if (!xHandle) {
+      return reply({ error: X_REQUIRED, x_linked: false }, 403);
+    }
+
     const holder = crypto.randomUUID();
     const lockId = await acquireFaucet(base44, holder);
     if (!lockId) {
@@ -340,6 +387,7 @@ export default async function (req) {
       reservedAt = Date.now();
       claim = await claimsApi.create({
         wallet_address: address,
+        x_handle: xHandle,
         amount: 0,
         status: 'pending',
         network_hash: network,
@@ -386,15 +434,17 @@ export default async function (req) {
       //    later request sees it no matter how fast it arrives.
       const dayStart = Date.now() - CLAIM_WINDOW_MS;
       const networkStart = Date.now() - NETWORK_WINDOW_MS;
-      const [ownHistory, networkHistory] = await Promise.all([
+      const [ownHistory, networkHistory, xHistory] = await Promise.all([
         claimsApi.filter({ wallet_address: address }, { sort: '-created_date', limit: HISTORY_LIMIT }),
         claimsApi.filter(
           { network_hash: network },
           { sort: '-created_date', limit: NETWORK_HISTORY_LIMIT }
         ),
+        claimsApi.filter({ x_handle: xHandle }, { sort: '-created_date', limit: HISTORY_LIMIT }),
       ]);
       const claims = (ownHistory?.items || []).filter((row) => row.id !== claim.id);
       const networkClaims = (networkHistory?.items || []).filter((row) => row.id !== claim.id);
+      const xClaims = (xHistory?.items || []).filter((row) => row.id !== claim.id);
 
       // A wallet can also claim a parked drop straight from its own wallet app. The
       // chain is the truth: a pending record whose balance was already claimed is
@@ -425,6 +475,22 @@ export default async function (req) {
           {
             error: 'This wallet already claimed today.',
             next_at: new Date(at(lastToday) + CLAIM_WINDOW_MS).toISOString(),
+          },
+          429
+        );
+      }
+
+      // One drop a day per X account, whatever wallet asks for it.
+      const lastOnX = xClaims.find((row) => at(row) >= dayStart);
+      if (lastOnX) {
+        const nextAt = new Date(at(lastOnX) + CLAIM_WINDOW_MS).toISOString();
+        await claimsApi.delete(claim.id);
+        claim = null;
+        return reply(
+          {
+            error: 'This X account already claimed today. The next drop opens in 24 hours.',
+            next_at: nextAt,
+            x_next_at: nextAt,
           },
           429
         );

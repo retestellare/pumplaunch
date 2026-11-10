@@ -76,11 +76,12 @@ export default function DailyPlunchClaim() {
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
   const networkAt = status?.network_next_at ? new Date(status.network_next_at).getTime() : 0;
   const faucetAt = status?.faucet_next_at ? new Date(status.faucet_next_at).getTime() : 0;
+  const xAt = status?.x_next_at ? new Date(status.x_next_at).getTime() : 0;
 
   // Whichever clock is running, the card asks again the moment it ends, so the
   // lock lifts on its own. Nobody has to press anything while it counts down.
   const wakeAt = Math.min(
-    ...[nextAt, networkAt, faucetAt].filter((t) => t > now).concat([Number.MAX_SAFE_INTEGER])
+    ...[nextAt, xAt, networkAt, faucetAt].filter((t) => t > now).concat([Number.MAX_SAFE_INTEGER])
   );
   useEffect(() => {
     if (!wakeAt || wakeAt === Number.MAX_SAFE_INTEGER || now < wakeAt || refreshedFor.current === wakeAt) return;
@@ -146,6 +147,7 @@ export default function DailyPlunchClaim() {
   const remaining = nextAt > now ? countdown(nextAt - now) : null;
   const networkRemaining = networkAt > now ? countdown(networkAt - now) : null;
   const faucetRemaining = faucetAt > now ? countdown(faucetAt - now) : null;
+  const xRemaining = xAt > now ? countdown(xAt - now) : null;
   // Only a faucet with nothing at all to send leaves nothing to request.
   const poolShort = status?.pool != null && status.pool < 1;
 
@@ -206,14 +208,31 @@ export default function DailyPlunchClaim() {
         </span>
       </>
     );
-  } else if (status && (remaining || networkRemaining || faucetRemaining)) {
-    // Any running clock locks the card: the 24-hour wallet window, the one-hour
-    // connection window, or the gap between two payouts.
+  } else if (status && status.x_linked === false) {
+    // The faucet only pays a wallet whose profile is linked to an X account, so
+    // the card says so instead of offering a request that would be refused.
+    noteNode = (
+      <span className="font-bold text-[#FFB020]">
+        To receive tokens, you must have profile X connected to the platform.
+      </span>
+    );
+  } else if (status && (remaining || xRemaining || networkRemaining || faucetRemaining)) {
+    // Any running clock locks the card: the 24-hour window of the wallet and of
+    // the X account behind it, the one-hour connection window, or the gap
+    // between two payouts.
     if (remaining) {
       actionNode = <ShareReceiptButton amount={reward} />;
       noteNode = (
         <>
           Next drop in <span className="font-mono text-[11px] text-[#F2F7F4]/80">{remaining}</span>
+        </>
+      );
+    } else if (xRemaining) {
+      actionNode = lockedAction(xRemaining);
+      noteNode = (
+        <>
+          This X account already claimed today. The next drop opens in{' '}
+          <span className="font-mono text-[11px] text-[#F2F7F4]/80">{xRemaining}</span>.
         </>
       );
     } else {

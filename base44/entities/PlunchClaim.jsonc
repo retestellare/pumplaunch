@@ -5,6 +5,9 @@
     "wallet_address": {
       "type": "string"
     },
+    "x_handle": {
+      "type": "string"
+    },
     "amount": {
       "type": "number",
       "default": 90000
