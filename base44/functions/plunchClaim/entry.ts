@@ -39,11 +39,14 @@ async function captchaHash(token) {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Answers Cloudflare's verdict with the reason it gave, so a key mismatch shows up
+// as such instead of a generic failure.
 async function verifyCaptcha(secret, token) {
-  if (!secret || !token) return false;
+  if (!secret) return { ok: false, code: 'missing-secret' };
+  if (!token) return { ok: false, code: 'missing-token' };
   const form = new FormData();
-  form.append('secret', secret);
-  form.append('response', token);
+  form.append('secret', secret.trim());
+  form.append('response', token.trim());
   try {
     const res = await fetch(TURNSTILE_VERIFY_URL, {
       method: 'POST',
@@ -51,11 +54,23 @@ async function verifyCaptcha(secret, token) {
       signal: AbortSignal.timeout(10000),
     });
     const data = await res.json().catch(() => null);
-    return Boolean(data && data.success === true);
-  } catch {
-    return false;
+    if (data && data.success === true) return { ok: true, code: 'ok' };
+    const codes = Array.isArray(data?.['error-codes']) ? data['error-codes'] : [];
+    console.warn('turnstile rejected:', codes.join(', ') || 'no error codes');
+    return { ok: false, code: codes[0] || 'unknown' };
+  } catch (error) {
+    console.warn('turnstile unreachable:', error?.message);
+    return { ok: false, code: 'unreachable' };
   }
 }
+
+const CAPTCHA_MESSAGES = {
+  'invalid-input-secret': 'The captcha is misconfigured: the secret key does not match this widget. No drop was sent.',
+  'missing-input-secret': 'The captcha is misconfigured: no secret key is set. No drop was sent.',
+  'invalid-input-response': 'The captcha answer was not accepted. Solve it again.',
+  'timeout-or-duplicate': 'That captcha expired or was already used. Solve it again.',
+  unreachable: 'The captcha could not be checked right now. Try again in a moment.',
+};
 
 const reply = (body, status = 200) => Response.json(body, { status });
 const at = (record) => new Date(record.created_date).getTime();
@@ -415,9 +430,14 @@ export default async function (req) {
         403
       );
     }
-    if (!(await verifyCaptcha(secrets.get('TURNSTILE_SECRET_KEY'), captchaToken))) {
+    const captchaCheck = await verifyCaptcha(secrets.get('TURNSTILE_SECRET_KEY'), captchaToken);
+    if (!captchaCheck.ok) {
       return reply(
-        { error: 'The captcha check did not pass. Complete it again.', captcha_required: true },
+        {
+          error: CAPTCHA_MESSAGES[captchaCheck.code] || 'The captcha check did not pass. Complete it again.',
+          captcha_required: true,
+          captcha_code: captchaCheck.code,
+        },
         403
       );
     }
