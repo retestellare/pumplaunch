@@ -25,6 +25,38 @@ const LOCK_KEY = 'plunch-faucet';
 const HISTORY_LIMIT = 30;
 const NETWORK_HISTORY_LIMIT = 20;
 
+const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const CAPTCHA_REQUIRED = 'Complete the captcha to receive the drop.';
+
+// The token a solved challenge hands to the page is spent exactly once. Cloudflare
+// refuses a second verification of the same token, and its hash is written to the
+// reservation so two requests racing with one token cannot both be paid.
+async function captchaHash(token) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`plunch-captcha:${token}`)
+  );
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyCaptcha(secret, token) {
+  if (!secret || !token) return false;
+  const form = new FormData();
+  form.append('secret', secret);
+  form.append('response', token);
+  try {
+    const res = await fetch(TURNSTILE_VERIFY_URL, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json().catch(() => null);
+    return Boolean(data && data.success === true);
+  } catch {
+    return false;
+  }
+}
+
 const reply = (body, status = 200) => Response.json(body, { status });
 const at = (record) => new Date(record.created_date).getTime();
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -369,6 +401,27 @@ export default async function (req) {
       return reply({ error: X_REQUIRED, x_linked: false }, 403);
     }
 
+    // A drop also costs a solved captcha. This runs before anything is reserved:
+    // a missing, reused or failed token never reaches the faucet's wallet.
+    const captchaToken = String(body.turnstile_token || '').trim();
+    if (!captchaToken) {
+      return reply({ error: CAPTCHA_REQUIRED, captcha_required: true }, 403);
+    }
+    const captchaKey = await captchaHash(captchaToken);
+    const spentTokens = await claimsApi.filter({ captcha: captchaKey }, { limit: 2 });
+    if ((spentTokens?.items || []).length) {
+      return reply(
+        { error: 'That captcha was already used. Complete a new one.', captcha_required: true },
+        403
+      );
+    }
+    if (!(await verifyCaptcha(secrets.get('TURNSTILE_SECRET_KEY'), captchaToken))) {
+      return reply(
+        { error: 'The captcha check did not pass. Complete it again.', captcha_required: true },
+        403
+      );
+    }
+
     const holder = crypto.randomUUID();
     const lockId = await acquireFaucet(base44, holder);
     if (!lockId) {
@@ -388,10 +441,27 @@ export default async function (req) {
       claim = await claimsApi.create({
         wallet_address: address,
         x_handle: xHandle,
+        captcha: captchaKey,
         amount: 0,
         status: 'pending',
         network_hash: network,
       });
+
+      // 1b. One token, one reservation. If a parallel request already reserved this
+      //     exact token, the older reservation owns it and this one gives way.
+      const tokenHolders = await claimsApi.filter(
+        { captcha: captchaKey },
+        { sort: 'created_date', limit: 5 }
+      );
+      const firstHolder = tokenHolders?.items?.[0];
+      if (firstHolder && firstHolder.id !== claim.id) {
+        await claimsApi.delete(claim.id);
+        claim = null;
+        return reply(
+          { error: 'That captcha was already used. Complete a new one.', captcha_required: true },
+          403
+        );
+      }
 
       // 2. The recipient must exist on mainnet and be able to hold PLUNCH.
       let account;
