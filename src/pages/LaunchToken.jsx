@@ -56,6 +56,18 @@ import {
 import LaunchTypeSwitch from '@/components/LaunchTypeSwitch';
 import LockedLiquidityForm from '@/components/launch/LockedLiquidityForm';
 import SingleApprovalCard from '@/components/launch/SingleApprovalCard';
+import TimelockForm from '@/components/launch/TimelockForm';
+import TimelockApprovalCard from '@/components/launch/TimelockApprovalCard';
+import {
+  LOCK_PRESETS,
+  TIMELOCK_CONTRACT_ID,
+  fetchLedgerTime,
+  formatUnlockDate,
+  isTimelockConfigured,
+  lockSharesInTimelock,
+  poolIdFor,
+  unlockFrom,
+} from '@/lib/timelock';
 import {
   planLockedLaunch,
   vaultFunding,
@@ -153,6 +165,11 @@ export default function LaunchToken() {
   const [lockedQuote, setLockedQuote] = useState('xlm');
   const [lockedPercent, setLockedPercent] = useState(50);
   const [lockedDeposit, setLockedDeposit] = useState('');
+  // A permanent lock throws the vault key away; a time lock hands the pool
+  // shares to the Soroban timelock contract until a chosen date.
+  const [lockMode, setLockMode] = useState('permanent');
+  const [lockDays, setLockDays] = useState(LOCK_PRESETS[0].days);
+  const [ledgerTime, setLedgerTime] = useState(0);
   const [initialLiquidity, setInitialLiquidity] = useState('');
   const [curve, setCurve] = useState('slow');
   const [step, setStep] = useState('form');
@@ -217,6 +234,15 @@ export default function LaunchToken() {
     };
   }, [wallet?.address, attemptRefreshKey]);
 
+  // The unlock date is quoted from network time, so the ledger clock is read
+  // once when the creator switches to a time lock.
+  useEffect(() => {
+    if (!lockedMode || lockMode !== 'timelock' || ledgerTime) return;
+    fetchLedgerTime()
+      .then(setLedgerTime)
+      .catch(() => setLedgerTime(0));
+  }, [lockedMode, lockMode, ledgerTime]);
+
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -277,6 +303,10 @@ export default function LaunchToken() {
         toast({ title: 'Still reading the XLM/USDC rate', description: 'Give it a moment and try again.', variant: 'destructive' });
         return false;
       }
+      if (lockMode === 'timelock' && !timelockUnlockAt) {
+        toast({ title: 'Still reading the Stellar ledger time', description: 'Give it a moment and try again.', variant: 'destructive' });
+        return false;
+      }
       return true;
     }
     const il = parseFloat(initialLiquidity);
@@ -324,6 +354,7 @@ export default function LaunchToken() {
     const customDomain = store.custom_domain ? cleanDomain(store.custom_domain) : (store.customDomain ? cleanDomain(store.customDomain) : '');
     const homeDomain = customDomain || HOME_DOMAIN;
     const isLocked = store.launch_model === 'locked';
+    const isTimelock = isLocked && store.lock_mode === 'timelock';
     store.symbol = sym;
     store.custom_domain = customDomain;
     store.pool_type = isLocked
@@ -411,6 +442,22 @@ export default function LaunchToken() {
         saveAttempt(store);
       }
 
+      // The unlock instant is fixed once and reused on resume, so the date the
+      // creator approved never drifts. A placeholder contract cannot hold anything.
+      if (isTimelock) {
+        if (!isTimelockConfigured()) {
+          throw new Error('The timelock contract address is not configured yet, so a time-locked launch cannot start.');
+        }
+        if (!store.timelock_unlock_at) {
+          store.timelock_unlock_at = unlockFrom(
+            await fetchLedgerTime(),
+            Number(store.timelock_days) || LOCK_PRESETS[0].days
+          );
+          saveAttempt(store);
+          setAttempt({ ...store });
+        }
+      }
+
       // A locked launch with nothing on chain yet goes out as ONE transaction: the
       // wallet signs once and the issuing account, the supply, the vault, the pool
       // deposit and the lock all happen inside that same envelope.
@@ -449,6 +496,8 @@ export default function LaunchToken() {
                 creatorTokens: parseFloat(store.creator_allocation) || 0,
                 issuerReserve: cost.issuerReserveXlm,
                 vaultStartingBalance: vaultFunding(deposit, bundleQuote),
+                // A time lock keeps the vault able to hand its shares over.
+                killVault: !isTimelock,
               });
             },
             signAndSubmit,
@@ -464,7 +513,7 @@ export default function LaunchToken() {
                   issuer: issuerKp.publicKey(),
                   quote: bundleQuote,
                 });
-                return state.locked && !!state.pool;
+                return isTimelock ? !!state.pool : state.locked && !!state.pool;
               },
             }
           );
@@ -497,7 +546,7 @@ export default function LaunchToken() {
           issuer: store.issuer_public_key,
           quote: store.locked_quote === 'usdc' ? 'usdc' : 'xlm',
         }).catch(() => null);
-        setupDone = !!(state && state.locked && state.pool);
+        setupDone = !!(state && state.pool && (isTimelock || state.locked));
       }
 
       // Step 1: Create issuer account + trustline
@@ -771,8 +820,10 @@ export default function LaunchToken() {
           }
 
           state = await readVaultState(vaultArgs);
-          if (!state.locked) {
-            setStage('liquidity', 'Locking the liquidity forever…');
+          // A time lock only needs the deposit in the pool: the shares are handed
+          // to the contract afterwards, so the vault keeps its signer.
+          if (isTimelock ? !state.pool : !state.locked) {
+            setStage('liquidity', isTimelock ? 'Seeding the pool…' : 'Locking the liquidity forever…');
             await submitWithRetry(
               async () => {
                 const vaultAccount = await loadAccount(vaultAddress);
@@ -783,6 +834,7 @@ export default function LaunchToken() {
                   quote,
                   deposit,
                   tokenAmount: tokenHalf,
+                  killVault: !isTimelock,
                 });
               },
               (tx) => submitProgrammatically(tx, vault),
@@ -884,6 +936,56 @@ export default function LaunchToken() {
         setStepStatus('liquidity', 'done');
       }
 
+      // The time lock itself: the pool shares go to the contract with the unlock
+      // instant, in one more wallet approval. The hash is kept, so a resume can
+      // never lock the same shares twice.
+      if (isTimelock && !store.timelock_tx) {
+        if (!store.vault_public_key) {
+          const err = new Error(
+            'A time lock needs a fresh launch: this symbol already exists on chain, so there is no new pool to hand to the contract.'
+          );
+          await failStep(store, 'liquidity', err);
+          throw err;
+        }
+        const lockQuote = store.locked_quote === 'usdc' ? 'usdc' : 'xlm';
+        const percent = Number(store.lock_percent) || 50;
+
+        setStage('liquidity', 'Reading the pool shares…');
+        const lockState = await readVaultState({
+          vaultAddress: store.vault_public_key,
+          assetCode: sym,
+          issuer: store.issuer_public_key,
+          quote: lockQuote,
+        });
+        const shares = (lockState.poolShares || 0) * (percent / 100);
+        if (!(shares > 0)) {
+          const err = new Error('The pool shares could not be read, so nothing was time-locked. Resume to try again.');
+          await failStep(store, 'liquidity', err);
+          throw err;
+        }
+
+        setWaiting(true);
+        setStage('liquidity', `Locking ${percent}% of the pool shares in the timelock…`);
+        try {
+          const locked = await lockSharesInTimelock({
+            walletAddress: wallet.address,
+            poolId: poolIdFor(sym, store.issuer_public_key, lockQuote),
+            shares,
+            unlockAt: store.timelock_unlock_at,
+          });
+          store.timelock_tx = locked.txHash;
+          store.timelock_shares = shares;
+          saveAttempt(store);
+          setAttempt({ ...store });
+          setStage('liquidity', `Time-locked until ${formatUnlockDate(store.timelock_unlock_at)}`);
+        } catch (e) {
+          await failStep(store, 'liquidity', e);
+          throw e;
+        } finally {
+          setWaiting(false);
+        }
+      }
+
       // Step 4: List in app
       setStage('list', 'Listing in app…');
       if (store.reused_asset && (!store.image_url || store.name === store.symbol)) {
@@ -940,6 +1042,12 @@ export default function LaunchToken() {
             vault_tokens: isLocked ? store.vault_tokens : 0,
             tokens_per_quote: isLocked ? store.tokens_per_quote : 0,
             lock_account: isLocked ? store.vault_public_key || '' : '',
+            lock_mode: isLocked ? (isTimelock ? 'timelock' : 'permanent') : null,
+            timelock_unlock_at: isTimelock ? store.timelock_unlock_at : null,
+            timelock_shares: isTimelock ? store.timelock_shares || 0 : 0,
+            timelock_percent: isTimelock ? Number(store.lock_percent) || 50 : 0,
+            timelock_tx: isTimelock ? store.timelock_tx || '' : '',
+            timelock_contract: isTimelock ? TIMELOCK_CONTRACT_ID : '',
             pools: poolsForType(store.pool_type),
           };
           let created;
@@ -1037,6 +1145,9 @@ export default function LaunchToken() {
       launch_model: lockedMode ? 'locked' : autoPool ? 'auto_pool' : 'curve',
       locked_quote: lockedQuote,
       lock_percent: lockedMode ? lockedPercent : null,
+      lock_mode: lockedMode ? lockMode : null,
+      timelock_days: lockedMode && timeLocked ? lockDays : null,
+      timelock_unlock_at: lockedMode && timeLocked ? timelockUnlockAt : null,
       locked_deposit: lockedMode ? lockedPlan.deposit : 0,
       vault_tokens: lockedMode ? lockedPlan.vaultTokens : 0,
       creator_allocation: lockedMode ? lockedPlan.creatorTokens : 0,
@@ -1100,6 +1211,8 @@ export default function LaunchToken() {
     xlmPerUsdc,
   });
   const lockedUnit = lockedQuote === 'usdc' ? 'USDC' : 'XLM';
+  const timelockUnlockAt = ledgerTime ? unlockFrom(ledgerTime, lockDays) : 0;
+  const timeLocked = lockMode === 'timelock';
   const poolCount = plan.quotes.length;
   const needsUsdc = effectivePoolType === 'usdc';
   const inputUnit = effectivePoolType === 'usdc' ? 'USDC' : 'XLM';
@@ -1333,7 +1446,9 @@ export default function LaunchToken() {
               </h3>
               <p className="text-[10px] text-white/30 mt-0.5">
                 {lockedMode
-                  ? 'Your deposit is locked forever; buyers release the rest of the supply'
+                  ? timeLocked
+                    ? 'Your deposit is locked until an unlock date; buyers release the rest of the supply'
+                    : 'Your deposit is locked forever; buyers release the rest of the supply'
                   : 'How much of the supply is seeded, and how steeply the curve prices it'}
               </p>
             </div>
@@ -1372,6 +1487,23 @@ export default function LaunchToken() {
                 symbol={form.symbol.toUpperCase()}
                 rateReady={rateReady}
                 usdcTrustline={usdcTrustline}
+                disabled={blocked}
+                timeLocked={timeLocked}
+              />
+            )}
+
+            {lockedMode && (
+              <TimelockForm
+                mode={lockMode}
+                onMode={setLockMode}
+                percent={lockedPercent}
+                onPercent={setLockedPercent}
+                days={lockDays}
+                onDays={setLockDays}
+                unlockAt={timelockUnlockAt}
+                shares={0}
+                symbol={form.symbol.toUpperCase()}
+                configured={isTimelockConfigured()}
                 disabled={blocked}
               />
             )}
@@ -1465,7 +1597,9 @@ export default function LaunchToken() {
         </div>
       ) : step === 'confirm' ? (
         <div className="p-4 space-y-4">
-          {lockedMode ? (
+          {lockedMode && timeLocked ? (
+            <TimelockApprovalCard percent={lockedPercent} unlockAt={timelockUnlockAt} unit={lockedUnit} />
+          ) : lockedMode ? (
             <SingleApprovalCard unit={lockedUnit} />
           ) : (
             <LaunchStepTracker steps={STEPS} currentStep="issuer" statuses={{}} />
@@ -1534,7 +1668,17 @@ export default function LaunchToken() {
                     label="Supply Locked"
                     value={`${lockedPlan.lockPercent}% · ${Math.floor(lockedPlan.vaultTokens).toLocaleString()} ${form.symbol.toUpperCase()}`}
                   />
-                  <Row label="Lock" value="Permanent · unwithdrawable" />
+                  <Row
+                    label="Lock"
+                    value={
+                      timeLocked
+                        ? `${lockedPercent}% · time-locked ${lockDays} days`
+                        : 'Permanent · unwithdrawable'
+                    }
+                  />
+                  {timeLocked && (
+                    <Row label="Unlocks" value={timelockUnlockAt ? formatUnlockDate(timelockUnlockAt) : 'Reading network time…'} />
+                  )}
                   <Row label="Vault Reserve" value={`~${vaultXlm} XLM · non-refundable`} />
                   {lockedQuote === 'usdc' && !usdcTrustline && <Row label="USDC Trustline" value="Added in this launch" />}
                 </>
@@ -1602,7 +1746,13 @@ export default function LaunchToken() {
               disabled={loading}
               className="flex-1 py-3.5 rounded-xl bg-[#00ff88] text-black font-bold text-sm disabled:opacity-50"
             >
-              {loading ? 'Launching…' : lockedMode ? 'Approve once & launch' : 'Confirm & Launch'}
+              {loading
+                ? 'Launching…'
+                : lockedMode
+                ? timeLocked
+                  ? 'Approve & time-lock'
+                  : 'Approve once & launch'
+                : 'Confirm & Launch'}
             </button>
           </div>
         </div>

@@ -79,6 +79,33 @@
     "lock_account": {
       "type": "string"
     },
+    "lock_mode": {
+      "type": "string",
+      "enum": [
+        "permanent",
+        "timelock"
+      ],
+      "enumColors": [
+        "gray",
+        "blue"
+      ],
+      "default": "permanent"
+    },
+    "timelock_unlock_at": {
+      "type": "number"
+    },
+    "timelock_shares": {
+      "type": "number"
+    },
+    "timelock_percent": {
+      "type": "number"
+    },
+    "timelock_tx": {
+      "type": "string"
+    },
+    "timelock_contract": {
+      "type": "string"
+    },
     "pools": {
       "type": "array",
       "items": {

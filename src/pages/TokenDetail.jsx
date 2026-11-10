@@ -12,6 +12,7 @@ import { fetchTokenMarket, fetchOtherPools, ROUTE_LABEL } from '@/lib/market';
 import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
 import LockedLiquidityCard from '@/components/token/LockedLiquidityCard';
+import TimelockStatusCard from '@/components/token/TimelockStatusCard';
 import PoolBadge from '@/components/PoolBadge';
 import ShareButton from '@/components/ShareButton';
 import TokenOgPreview from '@/components/TokenOgPreview';
@@ -165,7 +166,11 @@ export default function TokenDetail() {
           />
         )}
 
-        {token.launch_model === 'locked' && <LockedLiquidityCard token={token} market={market} />}
+        {token.lock_mode === 'timelock' ? (
+          <TimelockStatusCard token={token} />
+        ) : (
+          token.launch_model === 'locked' && <LockedLiquidityCard token={token} market={market} />
+        )}
 
         <TokenInfoCards token={token} stats={stats} market={market} />
 

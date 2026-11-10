@@ -30,6 +30,7 @@ export default function LockedLiquidityForm({
   rateReady,
   usdcTrustline,
   disabled,
+  timeLocked = false,
 }) {
   const unit = quote === 'usdc' ? 'USDC' : 'XLM';
   const sym = symbol || 'tokens';
@@ -90,8 +91,10 @@ export default function LockedLiquidityForm({
         />
         <p className="text-[10px] text-white/30 mt-1">
           Capped at {fmt(plan.maxDeposit)} {unit} per launch
-          {LOCKED_MIN_DEPOSIT > 0 ? ` (minimum ${LOCKED_MIN_DEPOSIT} ${unit})` : ''}. This amount leaves your
-          wallet for good.
+          {LOCKED_MIN_DEPOSIT > 0 ? ` (minimum ${LOCKED_MIN_DEPOSIT} ${unit})` : ''}.
+          {timeLocked
+            ? ' It stays in the pool until the lock ends, then the shares are yours again.'
+            : ' This amount leaves your wallet for good.'}
         </p>
         {plan.overCap && (
           <p className="text-[10px] text-[#ff3b5c] mt-1 font-bold">
@@ -126,18 +129,29 @@ export default function LockedLiquidityForm({
         />
       </div>
 
-      <div className="rounded-xl border border-[#ff3b5c]/30 bg-[#ff3b5c]/[.05] px-3 py-2">
-        <p className="text-[10px] font-black uppercase tracking-[.1em] text-[#ff3b5c]">
-          Permanent — nothing is ever recoverable
+      <div
+        className={`rounded-xl border px-3 py-2 ${
+          timeLocked ? 'border-[#00ff88]/25 bg-[#00ff88]/[.04]' : 'border-[#ff3b5c]/30 bg-[#ff3b5c]/[.05]'
+        }`}
+      >
+        <p
+          className={`text-[10px] font-black uppercase tracking-[.1em] ${
+            timeLocked ? 'text-[#00ff88]' : 'text-[#ff3b5c]'
+          }`}
+        >
+          {timeLocked ? 'Time locked — unlockable on a date' : 'Permanent — nothing is ever recoverable'}
         </p>
         <p className="text-[10px] text-white/50 mt-0.5">
-          There is no unlock date and no withdrawal. Only lock what you are willing to lose for good, which is why
-          each launch is capped at {fmt(plan.maxDeposit)} {unit}.
+          {timeLocked
+            ? `The shares are held by the timelock contract until the unlock date you pick below. Nobody can withdraw them before then, and each launch is capped at ${fmt(plan.maxDeposit)} ${unit}.`
+            : `There is no unlock date and no withdrawal. Only lock what you are willing to lose for good, which is why each launch is capped at ${fmt(plan.maxDeposit)} ${unit}.`}
         </p>
       </div>
 
       <p className="text-[10px] leading-relaxed text-white/35">
-        {fullLock
+        {timeLocked
+          ? 'The pool shares are handed to the timelock contract with your unlock date, so the liquidity cannot be pulled before it — that is what tells buyers there is no rug. When the term ends the contract allows the shares to be released.'
+          : fullLock
           ? 'The entire supply enters the pool with your deposit and the pool shares are locked away forever, so nobody — not even you — can withdraw the liquidity or sell into it. Every token can only ever be bought by the community.'
           : 'The pool shares land on a vault account that loses its only signer, so nobody — not even you — can withdraw this liquidity. Your own tokens can only be sold back into it, and buyers get the other half as they purchase.'}
       </p>

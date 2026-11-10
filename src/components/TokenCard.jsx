@@ -15,10 +15,9 @@ export default function TokenCard({ token, rank, index = 0 }) {
   const navigate = useNavigate();
 
   return (
-    <Link
-      to={`/token/${token.id}`}
+    <div
       style={{ animationDelay: rowDelay(index) }}
-      className="flex items-center gap-2.5 px-3.5 py-[11px] border-b border-[#16211E] animate-[sp-up_.5s_ease-out_both] transition-colors duration-200 hover:bg-[#0f1815] active:bg-[#14211d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+      className="relative flex items-center gap-2.5 px-3.5 py-[11px] border-b border-[#16211E] animate-[sp-up_.5s_ease-out_both] transition-colors duration-200 hover:bg-[#0f1815] active:bg-[#14211d]"
     >
       {rank != null && (
         <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black text-[#00F59B] bg-[#0c1512] border border-[#00F59B]/55 shadow-[0_0_10px_rgba(0,245,155,.55),inset_0_0_6px_rgba(0,245,155,.25)] shrink-0">
@@ -41,7 +40,7 @@ export default function TokenCard({ token, rank, index = 0 }) {
               e.stopPropagation();
               navigate(`/token/${token.id}/holders`);
             }}
-            className="ml-0.5 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-[4px] bg-[#16211E] text-[#F2F7F4]/60 font-bold transition duration-200 hover:text-[#00F59B] hover:shadow-[0_0_8px_rgba(0,245,155,.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
+            className="relative z-10 ml-0.5 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-[4px] bg-[#16211E] text-[#F2F7F4]/60 font-bold transition duration-200 hover:text-[#00F59B] hover:shadow-[0_0_8px_rgba(0,245,155,.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00F59B]"
           >
             <Users size={10} /> {token.holders ?? '—'}
           </button>
@@ -68,6 +67,12 @@ export default function TokenCard({ token, rank, index = 0 }) {
           {launchTag(token)}
         </div>
       </div>
-    </Link>
+      {/* One link covers the row; the holders chip sits above it. */}
+      <Link
+        to={`/token/${token.id}`}
+        aria-label={`Open $${token.symbol}`}
+        className="absolute inset-0 z-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#00F59B]"
+      />
+    </div>
   );
 }

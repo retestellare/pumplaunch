@@ -148,6 +148,7 @@ export function buildVaultDepositAndLockTransaction({
   quote = 'xlm',
   deposit,
   tokenAmount,
+  killVault = true,
 }) {
   const { poolAsset, quoteFirst } = poolShareInfo(assetCode, issuer, quote);
   const poolId = bytesToHex(
@@ -164,7 +165,7 @@ export function buildVaultDepositAndLockTransaction({
       maxPrice: { n: 1, d: 1000 },
     })
   );
-  tx.addOperation(StellarSdk.Operation.setOptions({ masterWeight: 0 }));
+  if (killVault) tx.addOperation(StellarSdk.Operation.setOptions({ masterWeight: 0 }));
   return tx.setTimeout(300).build();
 }
 
@@ -184,10 +185,14 @@ export async function readVaultState({ vaultAddress, assetCode, issuer, quote = 
       ? parseFloat(held(USDC_CODE, USDC_ISSUER)?.balance || 0)
       : parseFloat(balances.find((b) => b.asset_type === 'native')?.balance || 0);
 
+  const poolLine = balances.find((b) => b.asset_type === 'liquidity_pool_shares');
+
   return {
     exists: !!account,
     // An account with no signers left cannot authorise anything, ever again.
     locked: !!account && (account.signers || []).length === 0,
+    // What the deposit minted: the shares a time lock hands to the contract.
+    poolShares: poolLine ? parseFloat(poolLine.balance) || 0 : 0,
     hasTokenTrustline: !!token,
     hasPoolTrustline: balances.some((b) => b.asset_type === 'liquidity_pool_shares'),
     hasQuoteTrustline: quote === 'usdc' ? !!held(USDC_CODE, USDC_ISSUER) : true,
@@ -213,6 +218,7 @@ export function buildLockedLaunchTransaction({
   creatorTokens,
   issuerReserve,
   vaultStartingBalance,
+  killVault = true,
 }) {
   const issuer = issuerKeypair.publicKey();
   const vault = vaultKeypair.publicKey();
@@ -286,7 +292,10 @@ export function buildLockedLaunchTransaction({
       maxPrice: { n: 1, d: 1000 },
     })
   );
-  tx.addOperation(StellarSdk.Operation.setOptions({ source: vault, masterWeight: 0 }));
+  // A time-locked launch keeps the vault signer: the shares are handed to the
+  // timelock contract in a second approval, so the vault must still be able to
+  // move them. A permanent launch kills it here, in the same transaction.
+  if (killVault) tx.addOperation(StellarSdk.Operation.setOptions({ source: vault, masterWeight: 0 }));
 
   // Both app-held keys sign now; the wallet adds the last signature and submits.
   const built = tx.setTimeout(300).build();

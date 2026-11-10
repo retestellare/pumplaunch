@@ -68,6 +68,30 @@
     "vault_public_key": {
       "type": "string"
     },
+    "lock_mode": {
+      "type": "string",
+      "enum": [
+        "permanent",
+        "timelock"
+      ],
+      "enumColors": [
+        "gray",
+        "blue"
+      ],
+      "default": "permanent"
+    },
+    "timelock_days": {
+      "type": "number"
+    },
+    "timelock_unlock_at": {
+      "type": "number"
+    },
+    "timelock_shares": {
+      "type": "number"
+    },
+    "timelock_tx": {
+      "type": "string"
+    },
     "curve": {
       "type": "string"
     },
