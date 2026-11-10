@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Check, ExternalLink, Loader2 } from 'lucide-react';
+import { Check, ExternalLink, Loader2, Lock } from 'lucide-react';
 import { useWallet } from '@/lib/wallet';
 import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
@@ -75,14 +75,18 @@ export default function DailyPlunchClaim() {
 
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
   const networkAt = status?.network_next_at ? new Date(status.network_next_at).getTime() : 0;
+  const faucetAt = status?.faucet_next_at ? new Date(status.faucet_next_at).getTime() : 0;
 
-  // When the 24 hours run out, the card asks again so the button unlocks on its
-  // own while the page stays open.
+  // Whichever clock is running, the card asks again the moment it ends, so the
+  // lock lifts on its own. Nobody has to press anything while it counts down.
+  const wakeAt = Math.min(
+    ...[nextAt, networkAt, faucetAt].filter((t) => t > now).concat([Number.MAX_SAFE_INTEGER])
+  );
   useEffect(() => {
-    if (!nextAt || now < nextAt || refreshedFor.current === nextAt) return;
-    refreshedFor.current = nextAt;
+    if (!wakeAt || wakeAt === Number.MAX_SAFE_INTEGER || now < wakeAt || refreshedFor.current === wakeAt) return;
+    refreshedFor.current = wakeAt;
     load();
-  }, [now, nextAt, load]);
+  }, [now, wakeAt, load]);
 
   const claim = useCallback(async () => {
     if (!wallet?.address || inFlight.current) return;
@@ -141,8 +145,18 @@ export default function DailyPlunchClaim() {
   // screen is stale, so the card asks again instead of sitting on 00:00:00.
   const remaining = nextAt > now ? countdown(nextAt - now) : null;
   const networkRemaining = networkAt > now ? countdown(networkAt - now) : null;
+  const faucetRemaining = faucetAt > now ? countdown(faucetAt - now) : null;
   // Only a faucet with nothing at all to send leaves nothing to request.
   const poolShort = status?.pool != null && status.pool < 1;
+
+  // While a clock runs there is no control to press at all: the countdown itself
+  // is shown in a locked, non-interactive slot, so no tap can reach the faucet
+  // before it expires.
+  const lockedAction = (label) => (
+    <span className="h-[30px] px-2.5 rounded-[9px] border border-white/10 bg-white/[.04] text-[10px] font-black uppercase tracking-[.07em] text-[#F2F7F4]/35 inline-flex cursor-default select-none items-center gap-1.5">
+      <Lock size={11} /> {label}
+    </span>
+  );
 
   // Two compact slots: the action sits beside the amount, the note runs under it.
   const pill =
@@ -192,6 +206,31 @@ export default function DailyPlunchClaim() {
         </span>
       </>
     );
+  } else if (status && (remaining || networkRemaining || faucetRemaining)) {
+    // Any running clock locks the card: the 24-hour wallet window, the one-hour
+    // connection window, or the gap between two payouts.
+    if (remaining) {
+      actionNode = <ShareReceiptButton amount={reward} />;
+      noteNode = (
+        <>
+          Next drop in <span className="font-mono text-[11px] text-[#F2F7F4]/80">{remaining}</span>
+        </>
+      );
+    } else {
+      const left = networkRemaining || faucetRemaining;
+      actionNode = lockedAction(left);
+      noteNode = networkRemaining ? (
+        <>
+          A drop was already sent from this connection. Another one opens in{' '}
+          <span className="font-mono text-[11px] text-[#F2F7F4]/80">{left}</span>.
+        </>
+      ) : (
+        <>
+          The faucet is sending another drop. This one opens in{' '}
+          <span className="font-mono text-[11px] text-[#F2F7F4]/80">{left}</span>.
+        </>
+      );
+    }
   } else if (status?.trustline === false) {
     if (poolShort) {
       actionNode = (
@@ -216,41 +255,18 @@ export default function DailyPlunchClaim() {
     );
     noteNode = <>Today&apos;s drop is worth 0.1 XLM at the live PLUNCH rate — one tap sends it.</>;
   } else if (status) {
-    if (status.network_limited && networkRemaining) {
-      // Shared connections (4G/5G, offices, cafés) are only paused for an hour, so
-      // the message names the network rather than an unnamed wallet.
-      actionNode = (
-        <button onClick={load} className={ghost}>
-          Check again
-        </button>
-      );
-      noteNode = (
-        <>
-          A drop was already sent from this connection. Another one opens in{' '}
-          <span className="font-mono text-[11px] text-[#F2F7F4]/80">{networkRemaining}</span>.
-        </>
-      );
-    } else if (remaining) {
-      actionNode = <ShareReceiptButton amount={reward} />;
-      noteNode = (
-        <>
-          Next drop in <span className="font-mono text-[11px] text-[#F2F7F4]/80">{remaining}</span>
-        </>
-      );
-    } else {
-      actionNode = (
-        <button onClick={load} className={ghost}>
-          Check again
-        </button>
-      );
-      noteNode = (
-        <>
-          {poolShort
-            ? 'The daily PLUNCH pool is refilling — no drop available right now.'
-            : 'No drop is open for this wallet right now.'}
-        </>
-      );
-    }
+    actionNode = (
+      <button onClick={load} className={ghost}>
+        Check again
+      </button>
+    );
+    noteNode = (
+      <>
+        {poolShort
+          ? 'The daily PLUNCH pool is refilling — no drop available right now.'
+          : 'No drop is open for this wallet right now.'}
+      </>
+    );
   } else {
     actionNode = (
       <button onClick={load} className={ghost}>
