@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.54';
 import { secrets } from 'base44:runtime';
 import * as StellarSdk from 'npm:@stellar/stellar-sdk@17.1.0';
+import { networkHash } from './network.ts';
 
 const HORIZON_URL = 'https://horizon.stellar.org';
 const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
@@ -9,10 +10,14 @@ const REWARD_XLM = 0.1;
 const ASSET_CODE = 'PLUNCH';
 const ASSET_ISSUER = 'GC37N3TEZDIXDIGZC4PYM2ZTWE5ASWDDJGGXIPWLBGNMFROOBFF5MP2D';
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
+// One connection can only trigger a drop an hour apart. Kept short on purpose:
+// mobile carrier NAT puts many honest people behind one address.
+const NETWORK_WINDOW_MS = 60 * 60 * 1000;
 // A claim holds the wallet's slot while its payment is on the wire.
 const CLAIM_LOCK_MS = 3 * 60 * 1000;
 
 const HISTORY_LIMIT = 30;
+const NETWORK_HISTORY_LIMIT = 20;
 
 const reply = (body, status = 200) => Response.json(body, { status });
 
@@ -26,6 +31,8 @@ const plunchBalance = (account) => {
   const line = plunchLine(account);
   return line ? parseFloat(line.balance) : 0;
 };
+
+const at = (record) => new Date(record.created_date).getTime();
 
 const PRICE_TTL_MS = 60 * 1000;
 let priceCache = { price: 0, at: 0 };
@@ -78,11 +85,24 @@ export default async function (req) {
     const line = plunchLine(account);
     const hasTrustline = Boolean(line) && line.is_authorized !== false;
 
+    // The connection this request came from, as a keyed hash. No raw address is
+    // ever written down.
+    const funderSecret = secrets.get('PUMPLAUNCH_FUNDER_SECRET');
+    const network = await networkHash(req, funderSecret);
+
     const history = await base44.asServiceRole.entities.PlunchClaim.filter(
       { wallet_address: address },
       { sort: '-created_date', limit: HISTORY_LIMIT }
     );
     const claims = history?.items || [];
+
+    const networkHistory = network
+      ? await base44.asServiceRole.entities.PlunchClaim.filter(
+          { network_hash: network },
+          { sort: '-created_date', limit: NETWORK_HISTORY_LIMIT }
+        )
+      : null;
+    const networkClaims = networkHistory?.items || [];
 
     // A wallet can also claim a parked drop straight from its own wallet app. The
     // chain is the truth: a pending record whose balance was already claimed is
@@ -112,16 +132,25 @@ export default async function (req) {
       }
     }
 
-    const lastPaid = claims.find((claim) => claim.status === 'paid');
-    const lastPaidAt = lastPaid ? new Date(lastPaid.created_date).getTime() : 0;
-    const nextAt = lastPaidAt ? lastPaidAt + CLAIM_WINDOW_MS : 0;
-    const waiting = nextAt > Date.now();
+    // The day closes on ANY record from this wallet, paid or still reserved: a
+    // reservation whose confirmation lagged is not permission for a second drop.
+    const dayStart = Date.now() - CLAIM_WINDOW_MS;
+    const lastToday = claims.find((claim) => at(claim) >= dayStart);
+    const walletNextAt = lastToday ? at(lastToday) + CLAIM_WINDOW_MS : 0;
+    const waiting = Boolean(lastToday);
     const locked = claims.some(
-      (claim) => claim.status === 'pending' && Date.now() - new Date(claim.created_date).getTime() < CLAIM_LOCK_MS
+      (claim) => claim.status === 'pending' && Date.now() - at(claim) < CLAIM_LOCK_MS
     );
 
+    // The same connection cannot trigger a second drop within the hour, whichever
+    // wallet it asks for.
+    const networkStart = Date.now() - NETWORK_WINDOW_MS;
+    const lastOnNetwork = networkClaims.find((claim) => at(claim) >= networkStart);
+    const networkNextAt = lastOnNetwork ? at(lastOnNetwork) + NETWORK_WINDOW_MS : 0;
+    const networkWaiting = Boolean(lastOnNetwork);
+
     // The app's own funded wallet pays the reward.
-    const funder = StellarSdk.Keypair.fromSecret(secrets.get('PUMPLAUNCH_FUNDER_SECRET'));
+    const funder = StellarSdk.Keypair.fromSecret(funderSecret);
     const funderAccount = await server.loadAccount(funder.publicKey());
     const pool = plunchBalance(funderAccount);
 
@@ -144,8 +173,17 @@ export default async function (req) {
         trustline: hasTrustline,
         balance: plunchBalance(account),
         pool,
-        eligible: hasTrustline && !waiting && !locked && drop >= 1,
-        next_at: waiting ? new Date(nextAt).toISOString() : null,
+        eligible: hasTrustline && !waiting && !networkWaiting && !locked && drop >= 1,
+        next_at: waiting
+          ? new Date(walletNextAt).toISOString()
+          : networkWaiting
+          ? new Date(networkNextAt).toISOString()
+          : null,
+        network_limited: networkWaiting && !waiting,
+        network_next_at: networkWaiting ? new Date(networkNextAt).toISOString() : null,
+        // False when the request carries no platform connection address, in which
+        // case a claim is refused rather than skipping the one-hour rule.
+        network_verified: Boolean(network),
       });
     }
 
@@ -207,12 +245,9 @@ export default async function (req) {
       });
     }
 
-    if (waiting) {
-      return reply({ error: 'This wallet already claimed today.', next_at: new Date(nextAt).toISOString() }, 429);
-    }
-    // One drop per wallet. A balance already parked for this wallet IS today's drop:
-    // it is handed back so the wallet claims it in a single approval, whether or not
-    // the line is open yet. Parking or paying a second one is what paid a wallet twice.
+    // A balance already parked for this wallet IS the day's drop: it is handed back
+    // so the wallet claims it in a single approval, whether or not the line is open
+    // yet. This pays nothing new, so it is answered before either cooldown.
     let parkedId = null;
     let parkedAmount = 0;
     try {
@@ -234,12 +269,57 @@ export default async function (req) {
     if (locked) {
       return reply({ error: 'Your last claim is still settling. Try again in a minute.' }, 429);
     }
+    if (waiting) {
+      return reply({ error: 'This wallet already claimed today.', next_at: new Date(walletNextAt).toISOString() }, 429);
+    }
+    // No usable connection address means the one-hour rule cannot be applied, and
+    // paying anyway is exactly the hole this closes.
+    if (!network) {
+      return reply(
+        { error: 'Your network connection could not be verified, so no drop can be sent right now.' },
+        503
+      );
+    }
+    if (networkWaiting) {
+      return reply(
+        {
+          error:
+            'A drop was already sent from this network in the last hour. If you share a connection, try again a little later.',
+          next_at: new Date(networkNextAt).toISOString(),
+          network_next_at: new Date(networkNextAt).toISOString(),
+        },
+        429
+      );
+    }
     if (drop < 1) {
       if (price <= 0) {
         return reply({ error: 'The PLUNCH market price cannot be read right now, so no drop can be priced.' }, 503);
       }
       return reply({ error: 'The daily PLUNCH pool is empty right now.' }, 503);
     }
+
+    // Two taps in the same second can both read an empty history. Once the
+    // reservation exists, the oldest one owns the slot and the later request
+    // withdraws before a single token leaves the faucet.
+    const lostRace = async (claim) => {
+      const [oldestForWallet, oldestOnNetwork] = await Promise.all([
+        base44.asServiceRole.entities.PlunchClaim.filter(
+          { wallet_address: address },
+          { sort: 'created_date', limit: 1 }
+        ),
+        base44.asServiceRole.entities.PlunchClaim.filter(
+          { network_hash: network },
+          { sort: 'created_date', limit: 1 }
+        ),
+      ]);
+      const walletFirst = oldestForWallet?.items?.[0];
+      const networkFirst = oldestOnNetwork?.items?.[0];
+      const walletTaken =
+        walletFirst && at(walletFirst) >= dayStart && walletFirst.id !== claim.id;
+      const networkTaken =
+        networkFirst && at(networkFirst) >= networkStart && networkFirst.id !== claim.id;
+      return walletTaken || networkTaken;
+    };
 
     // No PLUNCH line yet: the drop is parked in a claimable balance for this wallet,
     // which can then open the line and receive it in ONE signed transaction.
@@ -249,7 +329,13 @@ export default async function (req) {
         wallet_address: address,
         amount: drop,
         status: 'pending',
+        network_hash: network,
       });
+
+      if (await lostRace(claim)) {
+        await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
+        return reply({ error: 'A claim was already started for this wallet a moment ago.' }, 429);
+      }
 
       let result = null;
       let failure = null;
@@ -314,7 +400,13 @@ export default async function (req) {
       wallet_address: address,
       amount: drop,
       status: 'pending',
+      network_hash: network,
     });
+
+    if (await lostRace(claim)) {
+      await base44.asServiceRole.entities.PlunchClaim.delete(claim.id);
+      return reply({ error: 'A claim was already started for this wallet a moment ago.' }, 429);
+    }
 
     // Two claims landing in the same ledger collide on the app wallet's sequence
     // number. A sequence conflict means the payment never applied, so it is safe

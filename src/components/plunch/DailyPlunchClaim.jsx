@@ -74,6 +74,7 @@ export default function DailyPlunchClaim() {
   }, [load]);
 
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
+  const networkAt = status?.network_next_at ? new Date(status.network_next_at).getTime() : 0;
 
   // When the 24 hours run out, the card asks again so the button unlocks on its
   // own while the page stays open.
@@ -139,6 +140,7 @@ export default function DailyPlunchClaim() {
   // A lock that has already run out is not a countdown: it means the status on
   // screen is stale, so the card asks again instead of sitting on 00:00:00.
   const remaining = nextAt > now ? countdown(nextAt - now) : null;
+  const networkRemaining = networkAt > now ? countdown(networkAt - now) : null;
   // Only a faucet with nothing at all to send leaves nothing to request.
   const poolShort = status?.pool != null && status.pool < 1;
 
@@ -214,7 +216,21 @@ export default function DailyPlunchClaim() {
     );
     noteNode = <>Today&apos;s drop is worth 0.1 XLM at the live PLUNCH rate — one tap sends it.</>;
   } else if (status) {
-    if (remaining) {
+    if (status.network_limited && networkRemaining) {
+      // Shared connections (4G/5G, offices, cafés) are only paused for an hour, so
+      // the message names the network rather than an unnamed wallet.
+      actionNode = (
+        <button onClick={load} className={ghost}>
+          Check again
+        </button>
+      );
+      noteNode = (
+        <>
+          A drop was already sent from this connection. Another one opens in{' '}
+          <span className="font-mono text-[11px] text-[#F2F7F4]/80">{networkRemaining}</span>.
+        </>
+      );
+    } else if (remaining) {
       actionNode = <ShareReceiptButton amount={reward} />;
       noteNode = (
         <>

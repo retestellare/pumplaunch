@@ -19,6 +19,9 @@
     },
     "tx_hash": {
       "type": "string"
+    },
+    "network_hash": {
+      "type": "string"
     }
   },
   "required": [
@@ -27,7 +30,11 @@
     "status"
   ],
   "rls": {
-    "read": {},
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
     "create": {
       "user_condition": {
         "role": "admin"
