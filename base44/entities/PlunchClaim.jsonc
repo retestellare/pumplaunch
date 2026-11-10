@@ -8,9 +8,6 @@
     "x_handle": {
       "type": "string"
     },
-    "captcha": {
-      "type": "string"
-    },
     "amount": {
       "type": "number",
       "default": 90000

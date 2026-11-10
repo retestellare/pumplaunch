@@ -4,7 +4,6 @@ import { Check, ExternalLink, Loader2, Lock } from 'lucide-react';
 import { useWallet } from '@/lib/wallet';
 import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
-import TurnstileWidget from '@/components/plunch/TurnstileWidget';
 
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 const formatAmount = (n) => (Number(n) > 0 ? Math.round(Number(n)).toLocaleString('en-US') : '—');
@@ -41,8 +40,6 @@ export default function DailyPlunchClaim() {
   const [txHash, setTxHash] = useState('');
   const [sentAmount, setSentAmount] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  const [captchaToken, setCaptchaToken] = useState('');
-  const [widgetKey, setWidgetKey] = useState(0);
   const refreshedFor = useRef(null);
   const inFlight = useRef(false);
 
@@ -76,14 +73,6 @@ export default function DailyPlunchClaim() {
     load();
   }, [load]);
 
-  // A solved token can be spent once, so the challenge is drawn again after every
-  // attempt that used it.
-  const onCaptcha = useCallback((token) => setCaptchaToken(token || ''), []);
-  const resetCaptcha = useCallback(() => {
-    setCaptchaToken('');
-    setWidgetKey((key) => key + 1);
-  }, []);
-
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
   const networkAt = status?.network_next_at ? new Date(status.network_next_at).getTime() : 0;
   const faucetAt = status?.faucet_next_at ? new Date(status.faucet_next_at).getTime() : 0;
@@ -102,11 +91,6 @@ export default function DailyPlunchClaim() {
 
   const claim = useCallback(async () => {
     if (!wallet?.address || inFlight.current) return;
-    // The faucet refuses a request without a solved challenge, so nothing is sent.
-    if (!captchaToken) {
-      setError('Solve the captcha first.');
-      return;
-    }
     inFlight.current = true;
     setPhase('claiming');
     setError('');
@@ -114,7 +98,6 @@ export default function DailyPlunchClaim() {
       const { data, error: failure } = await invoke({
         action: 'claim',
         wallet_address: wallet.address,
-        turnstile_token: captchaToken,
       });
       if (failure) throw new Error(failure);
 
@@ -156,9 +139,8 @@ export default function DailyPlunchClaim() {
       setError(err?.message || 'The claim did not go through.');
     } finally {
       inFlight.current = false;
-      resetCaptcha();
     }
-  }, [wallet?.address, reward, captchaToken, resetCaptcha]);
+  }, [wallet?.address, reward]);
 
   // A lock that has already run out is not a countdown: it means the status on
   // screen is stale, so the card asks again instead of sitting on 00:00:00.
@@ -168,17 +150,6 @@ export default function DailyPlunchClaim() {
   const xRemaining = xAt > now ? countdown(xAt - now) : null;
   // Only a faucet with nothing at all to send leaves nothing to request.
   const poolShort = status?.pool != null && status.pool < 1;
-  // The challenge sits right before the request, and only when one can be made.
-  const canRequest =
-    Boolean(wallet?.address) &&
-    Boolean(status) &&
-    status.x_linked !== false &&
-    phase !== 'sent' &&
-    !remaining &&
-    !xRemaining &&
-    !networkRemaining &&
-    !faucetRemaining &&
-    ((status.trustline === false && !poolShort) || Boolean(status.eligible));
 
   // While a clock runs there is no control to press at all: the countdown itself
   // is shown in a locked, non-interactive slot, so no tap can reach the faucet
@@ -289,31 +260,19 @@ export default function DailyPlunchClaim() {
       noteNode = <>The daily PLUNCH pool is refilling — no drop available right now.</>;
     } else {
       actionNode = (
-        <button onClick={claim} disabled={!captchaToken} className={primary}>
+        <button onClick={claim} className={primary}>
           Request {AMOUNT_LABEL}
         </button>
       );
-      noteNode = (
-        <>
-          {captchaToken
-            ? 'One approval opens your PLUNCH trustline and claims the drop in the same transaction.'
-            : 'Solve the captcha above to unlock the request.'}
-        </>
-      );
+      noteNode = <>One approval opens your PLUNCH trustline and claims the drop in the same transaction.</>;
     }
   } else if (status?.eligible) {
     actionNode = (
-      <button onClick={claim} disabled={!captchaToken} className={primary}>
+      <button onClick={claim} className={primary}>
         Request {AMOUNT_LABEL}
       </button>
     );
-    noteNode = (
-      <>
-        {captchaToken
-          ? "Today's drop is worth 0.1 XLM at the live PLUNCH rate — one tap sends it."
-          : 'Solve the captcha above to unlock the request.'}
-      </>
-    );
+    noteNode = <>Today&apos;s drop is worth 0.1 XLM at the live PLUNCH rate — one tap sends it.</>;
   } else if (status) {
     actionNode = (
       <button onClick={load} className={ghost}>
@@ -337,11 +296,6 @@ export default function DailyPlunchClaim() {
 
   return (
     <div className="rounded-[14px] border border-[#00F59B]/25 bg-[linear-gradient(135deg,#101a17,#101816)] px-3 py-2.5 shadow-[0_0_24px_rgba(0,245,155,.09)]">
-      {canRequest && (
-        <div className="mb-2">
-          <TurnstileWidget key={widgetKey} onToken={onCaptcha} />
-        </div>
-      )}
       <div className="flex items-center gap-2.5">
         <span className="h-8 px-2 rounded-[10px] bg-[#00F59B]/[.12] border border-[#00F59B]/30 text-[#00F59B] flex items-center justify-center shrink-0 font-display text-[8px] leading-none tracking-[.06em] [text-shadow:0_0_10px_rgba(0,245,155,.45)]">
           PLUNCH
