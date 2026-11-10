@@ -33,7 +33,7 @@ We are currently integrating time-decay unlock functions using Soroban smart con
 
 ## 🛠️ Tech Stack & Architecture
 
-*   **Frontend:** Vite, React, TypeScript, TailwindCSS.
+*   **Frontend:** Vite, React, JavaScript, TailwindCSS.
 *   **Backend & Automation:** Powered by Base44 environment infrastructure.
 *   **Blockchain Integration:** Stellar SDK, Soroban Smart Contracts, Stellar Liquidity Pools.
 
@@ -47,4 +47,4 @@ Three commands from the project root:
 base44 login  # one-time per machine
 base44 link   # one-time per clone
 base44 dev    # local backend + frontend together
-``
+`
