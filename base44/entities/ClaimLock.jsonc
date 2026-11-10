@@ -1,0 +1,42 @@
+{
+  "name": "ClaimLock",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "holder": {
+      "type": "string",
+      "default": ""
+    },
+    "held_until": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "key"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
