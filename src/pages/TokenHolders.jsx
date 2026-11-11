@@ -4,8 +4,7 @@ import { ChevronLeft } from 'lucide-react';
 import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
 import TokenIcon from '@/components/TokenIcon';
-
-const HORIZON_URL = 'https://horizon.stellar.org';
+import { fetchTokenHolders } from '@/lib/holders';
 
 function shortAddr(addr) {
   return `${addr.slice(0, 6)}…${addr.slice(-6)}`;
@@ -26,22 +25,8 @@ export default function TokenHolders() {
         const t = await base44.entities.Token.get(id);
         if (!active) return;
         setToken(t);
-        if (t.asset_code && t.issuer) {
-          const res = await fetch(`${HORIZON_URL}/accounts?asset=${t.asset_code}:${t.issuer}&limit=200`);
-          if (res.ok) {
-            const data = await res.json();
-            const records = (data._embedded?.records || [])
-              .map((acc) => {
-                const bal = (acc.balances || []).find(
-                  (b) => b.asset_code === t.asset_code && b.asset_issuer === t.issuer
-                );
-                return { address: acc.account_id, balance: bal ? parseFloat(bal.balance) : 0 };
-              })
-              .filter((h) => h.balance > 0)
-              .sort((a, b) => b.balance - a.balance);
-            if (active) setHolders(records);
-          }
-        }
+        const records = await fetchTokenHolders(t.asset_code, t.issuer);
+        if (active) setHolders(records);
       } catch { /* ignore */ }
       if (active) setLoading(false);
     })();

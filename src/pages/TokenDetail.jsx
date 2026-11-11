@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import useGoBack from '@/hooks/useGoBack';
 import { base44 } from '@/api/base44Client';
 import TokenIcon from '@/components/TokenIcon';
@@ -13,6 +13,7 @@ import SeedPoolPanel from '@/components/SeedPoolPanel';
 import TokenInfoCards from '@/components/TokenInfoCards';
 import LockedLiquidityCard from '@/components/token/LockedLiquidityCard';
 import TimelockStatusCard from '@/components/token/TimelockStatusCard';
+import HoldersSheet from '@/components/token/HoldersSheet';
 import PoolBadge from '@/components/PoolBadge';
 import ShareButton from '@/components/ShareButton';
 import TokenOgPreview from '@/components/TokenOgPreview';
@@ -35,6 +36,7 @@ export default function TokenDetail() {
   const [xlmPerUsdc, setXlmPerUsdc] = useState(0);
   const [ordersKey, setOrdersKey] = useState(0);
   const [ogCard, setOgCard] = useState(null);
+  const [holdersOpen, setHoldersOpen] = useState(false);
 
   const load = async () => {
     const t = await base44.entities.Token.get(id);
@@ -146,14 +148,32 @@ export default function TokenDetail() {
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: 'Mkt Cap', value: marketCap != null ? fmtXlm(marketCap) : '—' },
-            { label: 'Holders', value: holders != null ? holders : '—' },
+            {
+              label: 'Holders',
+              value: holders != null ? holders : '—',
+              // The holder count opens the wallet-by-wallet breakdown.
+              onClick: token.asset_code && token.issuer ? () => setHoldersOpen(true) : null,
+            },
             { label: 'Vol 24h', value: fmtXlm(volume24h) },
-          ].map((s) => (
-            <div key={s.label} className="bg-[#141518] rounded-xl p-3 text-center">
-              <div className="text-xs text-white/40">{s.label}</div>
-              <div className="text-sm font-bold mt-0.5">{s.value}</div>
-            </div>
-          ))}
+          ].map((s) => {
+            const Tag = s.onClick ? 'button' : 'div';
+            return (
+              <Tag
+                key={s.label}
+                onClick={s.onClick || undefined}
+                aria-label={s.onClick ? 'See who holds this token' : undefined}
+                className={`bg-[#141518] rounded-xl p-3 text-center ${
+                  s.onClick ? 'transition duration-200 active:scale-[.98] hover:bg-[#17181c]' : ''
+                }`}
+              >
+                <div className="flex items-center justify-center gap-0.5 text-xs text-white/40">
+                  {s.label}
+                  {s.onClick && <ChevronRight size={11} className="text-[#00ff88]" />}
+                </div>
+                <div className="text-sm font-bold mt-0.5">{s.value}</div>
+              </Tag>
+            );
+          })}
         </div>
 
         {ogCard?.url && (
@@ -200,6 +220,7 @@ export default function TokenDetail() {
           )}
         </div>
       </main>
+      <HoldersSheet token={token} open={holdersOpen} onOpenChange={setHoldersOpen} />
     </div>
   );
 }
