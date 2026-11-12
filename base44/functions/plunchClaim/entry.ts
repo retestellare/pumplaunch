@@ -2,13 +2,24 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.54';
 import { secrets } from 'base44:runtime';
 import * as StellarSdk from 'npm:@stellar/stellar-sdk@17.1.0';
 import { networkHash } from './network.ts';
+import {
+  HORIZON_URL,
+  NETWORK_PASSPHRASE,
+  PLUNCH_ASSET,
+  acquireLock,
+  lastPayoutAt,
+  pause,
+  plunchBalance,
+  plunchLine,
+  plunchPrice,
+  readParked,
+  releaseLock,
+  waitForParked,
+  waitForPayout,
+} from '../../shared/plunch.ts';
 
-const HORIZON_URL = 'https://horizon.stellar.org';
-const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
 // The drop is worth this much XLM: the faucet pays whatever the live rate buys.
 const REWARD_XLM = 0.1;
-const ASSET_CODE = 'PLUNCH';
-const ASSET_ISSUER = 'GC37N3TEZDIXDIGZC4PYM2ZTWE5ASWDDJGGXIPWLBGNMFROOBFF5MP2D';
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 // One connection can only trigger a drop an hour apart. Kept short on purpose:
 // mobile carrier NAT puts many honest people behind one address.
@@ -18,8 +29,6 @@ const CLAIM_LOCK_MS = 3 * 60 * 1000;
 // Only one payout may leave the faucet at a time, and a burst of fresh wallets
 // cannot drain it faster than this.
 const PAYOUT_GAP_MS = 75 * 1000;
-// A held lock frees itself if the invocation dies mid-flight.
-const LOCK_TTL_MS = 120 * 1000;
 const LOCK_KEY = 'plunch-faucet';
 
 const HISTORY_LIMIT = 30;
@@ -27,18 +36,6 @@ const NETWORK_HISTORY_LIMIT = 20;
 
 const reply = (body, status = 200) => Response.json(body, { status });
 const at = (record) => new Date(record.created_date).getTime();
-const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function plunchLine(account) {
-  return (account.balances || []).find(
-    (line) => line.asset_code === ASSET_CODE && line.asset_issuer === ASSET_ISSUER
-  );
-}
-
-const plunchBalance = (account) => {
-  const line = plunchLine(account);
-  return line ? parseFloat(line.balance) : 0;
-};
 
 // The X account the wallet's profile claims. The faucet keys its daily window on
 // it, so sending a fresh Stellar wallet cannot reopen the day.
@@ -55,131 +52,7 @@ function xHandleOf(profile) {
 
 const X_REQUIRED = 'To receive tokens, you must have profile X connected to the platform.';
 
-const PRICE_TTL_MS = 60 * 1000;
-let priceCache = { price: 0, at: 0 };
-
-// The PLUNCH/XLM rate comes from the mainnet order book. A tight book is read at its
-// mid price; a wide or one-sided book falls back to the side that exists, so a thin
-// market can never inflate the reward.
-async function plunchPrice(server, asset) {
-  if (priceCache.price > 0 && Date.now() - priceCache.at < PRICE_TTL_MS) return priceCache.price;
-
-  let price = 0;
-  try {
-    const book = await server.orderbook(asset, StellarSdk.Asset.native()).limit(1).call();
-    const bid = parseFloat(book?.bids?.[0]?.price ?? '');
-    const ask = parseFloat(book?.asks?.[0]?.price ?? '');
-    if (bid > 0 && ask > 0 && ask / bid <= 2) price = (bid + ask) / 2;
-    else if (bid > 0) price = bid;
-    else if (ask > 0) price = ask;
-  } catch {
-    price = 0;
-  }
-
-  if (price > 0) priceCache = { price, at: Date.now() };
-  return price;
-}
-
 // ── The faucet's mutex ───────────────────────────────────────────────────────
-// A single lock row is flipped from free to held by exactly one invocation: a
-// conditional update matches at most one caller, so whoever flips it first owns
-// the whole check-then-pay sequence. Everyone else is refused instantly.
-async function acquireFaucet(base44, holder) {
-  const locks = base44.asServiceRole.entities.ClaimLock;
-  let docs = ((await locks.filter({ key: LOCK_KEY }, { sort: 'created_date', limit: 10 }))?.items) || [];
-  if (!docs.length) {
-    await locks.create({ key: LOCK_KEY, holder: '', held_until: 0 });
-    docs = ((await locks.filter({ key: LOCK_KEY }, { sort: 'created_date', limit: 10 }))?.items) || [];
-  }
-  if (!docs.length) return null;
-
-  // A first-ever burst can create more than one lock row: only the oldest counts.
-  const [lock, ...redundant] = docs;
-  if (redundant.length) {
-    await Promise.all(redundant.map((row) => locks.delete(row.id).catch(() => {})));
-  }
-
-  const now = Date.now();
-  // A lock left behind by a crashed invocation is released by its expiry.
-  await locks
-    .updateMany({ id: lock.id, held_until: { $lt: now } }, { $set: { holder: '', held_until: 0 } })
-    .catch(() => {});
-  const taken = await locks.updateMany(
-    { id: lock.id, holder: '' },
-    { $set: { holder, held_until: now + LOCK_TTL_MS } }
-  );
-  return taken && taken.updated === 1 ? lock.id : null;
-}
-
-async function releaseFaucet(base44, lockId, holder) {
-  if (!lockId) return;
-  await base44.asServiceRole.entities.ClaimLock.updateMany(
-    { id: lockId, holder },
-    { $set: { holder: '', held_until: 0 } }
-  ).catch(() => {});
-}
-
-// ── Chain reads ──────────────────────────────────────────────────────────────
-// Has the faucet already paid this wallet since `sinceMs`? Used to settle a
-// payment whose submit answer never arrived: an unknown outcome is never a
-// reason to free the slot.
-async function paidSince(server, funder, address, sinceMs) {
-  try {
-    const page = await server.payments().forAccount(address).order('desc').limit(10).call();
-    return (
-      (page?.records || []).find(
-        (op) =>
-          op.type === 'payment' &&
-          op.from === funder &&
-          op.asset_code === ASSET_CODE &&
-          new Date(op.created_at).getTime() >= sinceMs
-      ) || null
-    );
-  } catch {
-    return null;
-  }
-}
-
-async function waitForPayout(server, funder, address, sinceMs) {
-  for (let i = 0; i < 3; i += 1) {
-    if (i > 0) await pause(1500);
-    const found = await paidSince(server, funder, address, sinceMs);
-    if (found) return found;
-  }
-  return null;
-}
-
-// The newest payout the faucet made, read from the chain rather than from a row
-// a client could have raced.
-async function lastPayoutAt(server, funder) {
-  try {
-    const page = await server.payments().forAccount(funder).order('desc').limit(5).call();
-    const op = (page?.records || []).find((r) => r.type === 'payment' && r.from === funder);
-    return op ? new Date(op.created_at).getTime() : 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function readParked(server, address, asset) {
-  try {
-    const page = await server.claimableBalances().claimant(address).asset(asset).limit(5).call();
-    const match = (page?.records || []).find((b) => parseFloat(b.amount) > 0);
-    return match ? { id: match.id, amount: Math.floor(parseFloat(match.amount)) } : null;
-  } catch {
-    return null;
-  }
-}
-
-async function waitForParked(server, address, asset) {
-  for (let i = 0; i < 4; i += 1) {
-    if (i > 0) await pause(1200);
-    const found = await readParked(server, address, asset);
-    if (found) return found;
-  }
-  return null;
-}
-
 // Wallet-signed rewards: this endpoint has no app-user session to scope by, so the
 // claim records are read and written with the service role and are the authority on
 // who has already been paid. Clients can read them but never write them.
@@ -197,7 +70,7 @@ export default async function (req) {
     const funderSecret = secrets.get('PUMPLAUNCH_FUNDER_SECRET');
     const funder = StellarSdk.Keypair.fromSecret(funderSecret);
     const funderKey = funder.publicKey();
-    const asset = new StellarSdk.Asset(ASSET_CODE, ASSET_ISSUER);
+    const asset = PLUNCH_ASSET;
     const server = new StellarSdk.Horizon.Server(HORIZON_URL);
     const claimsApi = base44.asServiceRole.entities.PlunchClaim;
 
@@ -269,7 +142,7 @@ export default async function (req) {
       // The price sets the drop, not a fixed token count: the faucet pays what 0.1 XLM
       // buys right now, so the reward keeps its value as PLUNCH moves. An unreadable
       // market never falls back to a guessed amount.
-      const price = await plunchPrice(server, asset);
+      const price = await plunchPrice(server);
       const reward = price > 0 ? Math.floor(REWARD_XLM / price) : 0;
       const drop = Math.min(reward, Math.floor(pool));
       const lastPaidAt = await lastPayoutAt(server, funderKey);
@@ -370,7 +243,7 @@ export default async function (req) {
     }
 
     const holder = crypto.randomUUID();
-    const lockId = await acquireFaucet(base44, holder);
+    const lockId = await acquireLock(base44, LOCK_KEY, holder);
     if (!lockId) {
       // Another claim is already in flight: nothing is read, nothing is sent.
       return reply({ error: 'A drop is going out right now. Try again in a moment.' }, 429);
@@ -408,7 +281,7 @@ export default async function (req) {
       // 3. A balance already parked for this wallet IS the day's drop: it is handed
       //    back so the wallet claims it in a single approval. It pays nothing new,
       //    so the reservation is dropped and the day is not charged.
-      const parked = await readParked(server, address, asset);
+      const parked = await readParked(server, address);
       if (parked) {
         await claimsApi.delete(claim.id);
         claim = null;
@@ -536,7 +409,7 @@ export default async function (req) {
       // 6. The app's own funded wallet pays the reward.
       const funderAccount = await server.loadAccount(funderKey);
       const pool = plunchBalance(funderAccount);
-      const price = await plunchPrice(server, asset);
+      const price = await plunchPrice(server);
       const reward = price > 0 ? Math.floor(REWARD_XLM / price) : 0;
       // The drop is the full reward while the faucet can cover it. When the pool runs
       // low the claim still goes through for everything it holds, and the card shows
@@ -595,7 +468,7 @@ export default async function (req) {
         // honest reading is the chain. A parked balance means the drop landed, so
         // the reservation stands and the wallet can still claim it.
         // A rejected submit still gets one chain read: the balance may exist anyway.
-        const settled = result ? await waitForParked(server, address, asset) : await readParked(server, address, asset);
+        const settled = result ? await waitForParked(server, address) : await readParked(server, address);
         if (!result && !settled) {
           const codes = failure?.response?.data?.extras?.result_codes;
           const detail = codes?.operations?.join(', ') || codes?.transaction || failure?.message;
@@ -698,7 +571,7 @@ export default async function (req) {
       }
       return reply({ error: error.message }, submitted ? 502 : 500);
     } finally {
-      await releaseFaucet(base44, lockId, holder);
+      await releaseLock(base44, LOCK_KEY, lockId, holder);
     }
   } catch (error) {
     return reply({ error: error.message }, 500);

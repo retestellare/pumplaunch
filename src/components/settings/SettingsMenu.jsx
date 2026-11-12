@@ -61,7 +61,7 @@ export default function SettingsMenu({ open, onOpenChange, profile, onProfileSav
               <SettingsRow
                 icon={Gift}
                 label="Rewards"
-                description="Referrals, claims and payouts"
+                description="Invites, PLUNCH and payouts"
                 to="/rewards"
                 onClick={close}
               />

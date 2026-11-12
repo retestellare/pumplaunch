@@ -18,7 +18,6 @@ import Profile from '@/pages/Profile';
 import AssetManager from '@/pages/AssetManager';
 import ManageAsset from '@/pages/ManageAsset';
 import Rewards from '@/pages/Rewards';
-import RewardsAdmin from '@/pages/RewardsAdmin';
 import Inbox from '@/pages/Inbox';
 import Thread from '@/pages/Thread';
 import Teams from '@/pages/Teams';
@@ -58,7 +57,6 @@ function AppRoutes() {
             <Route path="/manage" element={<AssetManager />} />
             <Route path="/manage/:kind/:id" element={<ManageAsset />} />
             <Route path="/rewards" element={<Rewards />} />
-            <Route path="/rewards-admin" element={<RewardsAdmin />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/messages/:walletAddress" element={<Thread />} />
             <Route path="/teams" element={<Teams />} />

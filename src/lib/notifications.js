@@ -54,16 +54,13 @@ export function notificationAge(at) {
 
 const when = (date) => new Date(date).getTime() || 0;
 
-// The feed: what the platform has been doing, plus this wallet's own rewards,
-// newest first. Every row carries the face behind the action.
+// The feed: what the platform has been doing, newest first. Every row carries
+// the face behind the action.
 export async function fetchNotifications(wallet) {
-  const [tokens, posts, trades, rewards] = await Promise.all([
+  const [tokens, posts, trades] = await Promise.all([
     base44.entities.Token.list('-created_date', 15).catch(() => []),
     base44.entities.Post.list('-created_date', 15).catch(() => []),
     base44.entities.Trade.list('-created_date', 15).catch(() => []),
-    wallet
-      ? base44.entities.RewardEvent.filter({ wallet_address: wallet }, '-created_date', 8).catch(() => [])
-      : Promise.resolve([]),
   ]);
 
   const items = [
@@ -87,13 +84,6 @@ export async function fetchNotifications(wallet) {
       text: `${t.type === 'sell' ? 'sold' : 'bought'} $${t.token_symbol || t.token_name || ''}`.trim(),
       at: when(t.created_date),
       to: t.token_id ? `/token/${t.token_id}` : null,
-    })),
-    ...(rewards || []).map((r) => ({
-      id: `reward-${r.id}`,
-      address: r.wallet_address,
-      text: `your reward was credited · +${r.xlm || 0} XLM${r.label ? ` ${r.label}` : ''}`,
-      at: when(r.created_date),
-      to: '/rewards',
     })),
   ]
     .sort((a, b) => b.at - a.at)

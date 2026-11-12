@@ -1,84 +1,80 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronLeft, ShieldCheck } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import useGoBack from '@/hooks/useGoBack';
 import { useWallet } from '@/lib/wallet';
 import WalletButton from '@/components/WalletButton';
-import RewardRulesCard from '@/components/rewards/RewardRulesCard';
-import ReferralCard from '@/components/rewards/ReferralCard';
-import RewardProgress from '@/components/rewards/RewardProgress';
-import ClaimPanel from '@/components/rewards/ClaimPanel';
-import ClaimHistory from '@/components/rewards/ClaimHistory';
-import ReferralQualification from '@/components/rewards/ReferralQualification';
-import { loadClaims, loadProgress, loadRules, reviewerAccess } from '@/lib/rewards';
-import { syncReferralCredit } from '@/lib/referrals';
-import { resolveProfile } from '@/lib/profiles';
+import RewardBalanceCard from '@/components/rewards/RewardBalanceCard';
+import InviteLinkCard from '@/components/rewards/InviteLinkCard';
+import RewardHistoryList from '@/components/rewards/RewardHistoryList';
+import {
+  confirmReferralPayout,
+  referralStatus,
+  requestReferralPayout,
+  syncReferralRewards,
+} from '@/lib/referralRewards';
+import { claimDropWithTrustline } from '@/lib/plunch';
+import { useRefreshTick } from '@/lib/appRefresh';
 
-const EMPTY = {
-  rows: {},
-  total: 0,
-  claimable: 0,
-  claimableCount: 0,
-  referrals: 0,
-  qualified: 0,
-};
-
-function Spinner() {
-  return (
-    <div className="flex justify-center py-20">
-      <div className="w-8 h-8 border-2 border-white/10 border-t-[#00F59B] rounded-full animate-spin" />
-    </div>
-  );
-}
-
-// The member's side of the program: what earns, what has been earned, the invite
-// link, and the claim that turns rewarded activity into a manual payout.
+// The referral program: both wallets earn PLUNCH worth 1 XLM when an invited
+// member completes a profile, and the whole balance leaves whenever the member
+// asks for it.
 export default function Rewards() {
   const { wallet, connect, connecting } = useWallet();
   const goBack = useGoBack('/');
-  const [rules, setRules] = useState(null);
-  const [progress, setProgress] = useState(EMPTY);
-  const [claims, setClaims] = useState([]);
-  const [canReview, setCanReview] = useState(false);
-  const [invite, setInvite] = useState(null);
-  const [xConnected, setXConnected] = useState(false);
+  const tick = useRefreshTick();
+  const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [phase, setPhase] = useState('idle'); // idle | sending | paid
+  const [payout, setPayout] = useState(null);
+  const [error, setError] = useState('');
 
   const load = useCallback(async (address) => {
-    setLoading(true);
-    const loadedRules = await loadRules();
-    setRules(loadedRules);
     if (!address) {
-      setProgress(EMPTY);
-      setClaims([]);
-      setCanReview(false);
-      setInvite(null);
-      setXConnected(false);
+      setStatus(null);
       setLoading(false);
       return;
     }
-    // syncReferralCredit clears any invitation of this wallet that has just
-    // qualified, and reports the invitation's state back.
-    const [progressState, claimList, access, inviteState, profile] = await Promise.all([
-      loadProgress(address),
-      loadClaims(address),
-      reviewerAccess(address),
-      syncReferralCredit(address),
-      resolveProfile(address),
-    ]);
-    setProgress(progressState);
-    setClaims(claimList || []);
-    setCanReview(access.allowed);
-    setInvite(inviteState);
-    setXConnected(!!profile?.x_handle);
+    setLoading(true);
+    // Anything that has just qualified is credited before the balance is read.
+    await syncReferralRewards(address);
+    const { data, error: failure } = await referralStatus(address);
+    setStatus(data && !failure ? data : null);
+    if (failure) setError(failure);
     setLoading(false);
   }, []);
 
   useEffect(() => {
     load(wallet?.address);
-  }, [wallet?.address, load]);
+  }, [wallet?.address, load, tick]);
 
-  const pending = claims.find((claim) => claim.status === 'pending') || null;
+  const request = async () => {
+    if (!wallet?.address) return;
+    setPhase('sending');
+    setError('');
+    try {
+      const { data, error: failure } = await requestReferralPayout(wallet.address);
+      if (failure) throw new Error(failure);
+
+      let hash = data?.tx_hash || '';
+      // A wallet without the PLUNCH line gets the tokens parked for it: one
+      // approval opens the line and claims them into the same wallet.
+      if (data?.claimable_balance_id) {
+        const result = await claimDropWithTrustline({
+          walletAddress: wallet.address,
+          balanceId: data.claimable_balance_id,
+        });
+        hash = result?.hash || hash;
+        await confirmReferralPayout(wallet.address, hash);
+      }
+
+      setPayout({ amount: data?.amount || 0, hash });
+      setPhase('paid');
+      load(wallet.address);
+    } catch (err) {
+      setPhase('idle');
+      setError(err?.message || 'The request did not go through.');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#080B0A] text-white max-w-lg mx-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
@@ -87,21 +83,17 @@ export default function Rewards() {
           <button onClick={goBack} aria-label="Back" className="text-[#F2F7F4]/70">
             <ChevronLeft size={22} />
           </button>
-          <h1 className="flex-1 font-display text-[15px] tracking-[.02em] uppercase text-[#00F59B]">
-            Rewards
-          </h1>
+          <h1 className="flex-1 font-display text-[15px] tracking-[.02em] uppercase text-[#00F59B]">Rewards</h1>
           <WalletButton />
         </div>
         <div className="h-[2px] bg-[linear-gradient(90deg,#00F59B,rgba(0,245,155,0)_70%)]" />
       </header>
 
       <main className="p-3.5 space-y-3">
-        {loading || !rules ? (
-          <Spinner />
-        ) : !wallet ? (
-          <div className="bg-[#141518] rounded-2xl p-5 text-center space-y-3">
+        {!wallet ? (
+          <section className="bg-[#141518] rounded-2xl p-5 text-center space-y-3">
             <p className="text-sm text-[#F2F7F4]/60">
-              Connect a wallet to see your rewards, your referral link and your claims.
+              Connect a wallet to collect your referral rewards.
             </p>
             <button
               onClick={connect}
@@ -110,37 +102,23 @@ export default function Rewards() {
             >
               {connecting ? 'Connecting…' : 'Connect Wallet'}
             </button>
+          </section>
+        ) : loading && !status ? (
+          <div className="flex justify-center py-20">
+            <div className="w-8 h-8 border-2 border-white/10 border-t-[#00F59B] rounded-full animate-spin" />
           </div>
         ) : (
           <>
-            {invite?.invited && (
-              <ReferralQualification state={invite.state} verified={invite.verified} />
-            )}
-            <ReferralCard
-              wallet={wallet.address}
-              count={progress.referrals}
-              qualified={progress.qualified}
-              rewardXlm={rules.referral_xlm}
+            <RewardBalanceCard
+              plunch={status?.plunch || 0}
+              price={status?.price || 0}
+              phase={phase}
+              payout={payout}
+              onRequest={request}
+              error={error}
             />
-            <RewardProgress progress={progress} rules={rules} />
-            <ClaimPanel
-              wallet={wallet.address}
-              progress={progress}
-              rules={rules}
-              pending={pending}
-              xConnected={xConnected}
-              onSubmitted={() => load(wallet.address)}
-            />
-            <ClaimHistory claims={claims} />
-            <RewardRulesCard rules={rules} />
-            {canReview && (
-              <Link
-                to="/rewards-admin"
-                className="flex items-center justify-center gap-2 py-3.5 rounded-xl bg-white/5 border border-[#00F59B]/25 text-[#00F59B] text-xs font-bold tracking-[.06em] uppercase"
-              >
-                <ShieldCheck size={15} /> Review reward claims
-              </Link>
-            )}
+            <InviteLinkCard wallet={wallet.address} invited={status?.invited || 0} />
+            <RewardHistoryList items={status?.rewards || []} loading={loading} />
           </>
         )}
       </main>

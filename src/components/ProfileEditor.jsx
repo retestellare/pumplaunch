@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
+import { syncReferralRewards } from '@/lib/referralRewards';
 import { resolveProfile } from '@/lib/profiles';
 import { isXHandle, normalizeXHandle } from '@/lib/xAccount';
 import { X, ImagePlus, Loader2 } from 'lucide-react';
@@ -94,6 +95,8 @@ export default function ProfileEditor({ onDone }) {
         setExisting(created);
       }
       toast({ title: 'Profile saved!' });
+      // A completed profile is what pays the referral, on both wallets.
+      syncReferralRewards(wallet.address).catch(() => {});
       onDone();
     } catch (e) {
       toast({ title: 'Failed to save profile', description: e.message || String(e), variant: 'destructive' });

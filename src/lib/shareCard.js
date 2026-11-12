@@ -246,43 +246,6 @@ async function renderPostCard(post, { author, handle } = {}) {
   return blobFromCanvas(canvas);
 }
 
-async function renderReferralCard({ rewardXlm, wallet }) {
-  const ctx = createCanvas().getContext('2d');
-  const canvas = ctx.canvas;
-  drawBackdrop(ctx, hashString(`referral|${wallet || ''}`));
-  drawLockup(ctx, host());
-  drawRocketTile(ctx, W / 2, 240, 200);
-
-  ctx.textAlign = 'center';
-  ctx.fillStyle = NEON;
-  ctx.font = `800 52px ${FONT}`;
-  ctx.fillText(`EARN ${fmtCardAmount(rewardXlm)} XLM PER FRIEND`, W / 2, 398);
-
-  ctx.fillStyle = MUTED;
-  ctx.font = `600 26px ${FONT}`;
-  ctx.fillText('Invite friends — earn when they join, launch or post.', W / 2, 438);
-
-  const label = `${host()}/rewards?ref=${shortWallet(wallet)}`;
-  ctx.font = `600 24px ${FONT}`;
-  const pillW = Math.min(W - PAD * 2, ctx.measureText(label).width + 60);
-  const pillX = (W - pillW) / 2;
-  ctx.fillStyle = 'rgba(22,33,30,0.9)';
-  roundRect(ctx, pillX, 470, pillW, 48, 24);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,245,155,0.35)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = INK;
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, W / 2, 495);
-  ctx.textBaseline = 'alphabetic';
-
-  drawBadge(ctx);
-  drawFooter(ctx);
-  ctx.textAlign = 'left';
-  return blobFromCanvas(canvas);
-}
-
 function toFile(blob, name) {
   return blob ? new File([blob], name, { type: 'image/png' }) : null;
 }
@@ -295,17 +258,6 @@ function toUrl(blob) {
 export async function postCardFile(post, opts) {
   try {
     return toFile(await renderPostCard(post, opts), `stellar-pump-callout-${post?.id || 'share'}.png`);
-  } catch {
-    return null;
-  }
-}
-
-// The referral card twice over: an object URL to show it on screen, and the file
-// the share sheet sends.
-export async function referralCardAssets({ rewardXlm, wallet } = {}) {
-  try {
-    const blob = await renderReferralCard({ rewardXlm, wallet });
-    return { url: toUrl(blob), file: toFile(blob, 'stellar-pump-referral.png') };
   } catch {
     return null;
   }

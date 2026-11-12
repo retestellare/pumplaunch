@@ -1,0 +1,79 @@
+{
+  "name": "ReferralReward",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "referred_wallet": {
+      "type": "string"
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "inviter",
+        "invitee"
+      ],
+      "enumColors": [
+        "green",
+        "blue"
+      ]
+    },
+    "plunch": {
+      "type": "number",
+      "default": 0
+    },
+    "xlm_value": {
+      "type": "number",
+      "default": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "credited",
+        "paid"
+      ],
+      "enumColors": [
+        "yellow",
+        "green"
+      ],
+      "default": "credited"
+    },
+    "tx_hash": {
+      "type": "string"
+    },
+    "paid_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "wallet_address",
+    "referred_wallet",
+    "side",
+    "plunch",
+    "status"
+  ],
+  "rls": {
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

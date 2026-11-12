@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { useWallet } from '@/lib/wallet';
 import { attributeReferral, captureReferralFromUrl } from '@/lib/referrals';
+import { syncReferralRewards } from '@/lib/referralRewards';
 
-// Headless: remembers an incoming referral link, then credits the inviter the
-// first time the invited wallet appears in the app.
+// Headless: remembers an incoming referral link, credits it to the inviter's
+// wallet, and lets the backend pay both sides as soon as this profile is complete.
 export default function RewardTracker() {
   const { wallet } = useWallet();
 
@@ -13,7 +14,10 @@ export default function RewardTracker() {
 
   useEffect(() => {
     if (!wallet?.address) return;
-    attributeReferral(wallet.address).catch(() => {});
+    const address = wallet.address;
+    attributeReferral(address)
+      .then(() => syncReferralRewards(address))
+      .catch(() => {});
   }, [wallet?.address]);
 
   return null;

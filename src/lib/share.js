@@ -175,6 +175,16 @@ export async function copyShare({ text, url, toast }) {
   }
 }
 
+// A referral payout is worth posting too: it shows the program pays.
+export function referralPayoutShare({ amount }) {
+  const label = (parseFloat(amount) || 0).toLocaleString('en-US');
+  return {
+    title: `Referral payout — ${label} PLUNCH`,
+    text: `💰 Just collected ${label} PLUNCH in referral rewards on ${APP_NAME}. Invite a friend and you both earn.`,
+    url: absoluteUrl('/'),
+  };
+}
+
 // The daily free drop is public proof the platform pays out, so the receipt is
 // written to be posted as-is.
 export function plunchDropShare({ amount }) {

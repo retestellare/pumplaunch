@@ -3,7 +3,6 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
-import { recordReward } from '@/lib/rewards';
 import PageLayout from '@/components/PageLayout';
 import WalletButton from '@/components/WalletButton';
 import LaunchStepTracker, { STEPS } from '@/components/LaunchStepTracker';
@@ -1101,16 +1100,6 @@ export default function LaunchToken() {
         eventName: 'token_launched',
         properties: { pool: store.pool_type, curve: store.curve, reused_asset: !!store.reused_asset },
       });
-
-      // The launch itself earns a reward, credited once per token.
-      if (wallet?.address && store.token_id) {
-        recordReward({
-          wallet: wallet.address,
-          type: 'token_launch',
-          ref: store.token_id,
-          label: `$${sym} launch`,
-        }).catch(() => {});
-      }
 
       if (customDomain) {
         setTomlText(store.toml_text);

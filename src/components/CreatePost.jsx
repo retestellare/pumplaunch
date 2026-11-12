@@ -3,7 +3,6 @@ import { base44 } from '@/api/base44Client';
 import { useWallet } from '@/lib/wallet';
 import { useToast } from '@/components/ui/use-toast';
 import { X, ImagePlus } from 'lucide-react';
-import { recordReward } from '@/lib/rewards';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
@@ -58,15 +57,6 @@ export default function CreatePost({ onDone, post = null }) {
           comments_count: 0,
         });
         toast({ title: 'Callout posted!' });
-        // Posting earns a reward, credited once per callout.
-        if (wallet?.address) {
-          recordReward({
-            wallet: wallet.address,
-            type: 'social_post',
-            ref: saved.id,
-            label: fields.token_symbol ? `$${fields.token_symbol} callout` : 'Social callout',
-          }).catch(() => {});
-        }
       }
       onDone(saved);
     } catch (e) {
