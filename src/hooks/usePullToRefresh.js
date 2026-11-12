@@ -65,9 +65,14 @@ export default function usePullToRefresh(onRefresh, enabled = true) {
       }
       setPull(PULL_THRESHOLD);
       setRefreshing(true);
+      // The indicator is held briefly so the refresh is visible, but it never
+      // waits on a single read: a slow endpoint cannot leave it spinning.
+      const started = Date.now();
       try {
         await callback.current?.();
       } finally {
+        const shown = Date.now() - started;
+        if (shown < 450) await new Promise((r) => setTimeout(r, 450 - shown));
         setRefreshing(false);
         setPull(0);
       }

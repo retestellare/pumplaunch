@@ -1,12 +1,25 @@
 const HORIZON_URL = 'https://horizon.stellar.org';
+const TIMEOUT_MS = 8000;
+
+async function horizonJson(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Every account Horizon reports holding the asset, biggest balance first. The
 // issuer's unsold supply is not a holder, so it never appears in the list.
 export async function fetchTokenHolders(assetCode, issuer) {
   if (!assetCode || !issuer) return [];
-  const res = await fetch(`${HORIZON_URL}/accounts?asset=${assetCode}:${issuer}&limit=200`);
-  if (!res.ok) return [];
-  const data = await res.json();
+  const data = await horizonJson(`${HORIZON_URL}/accounts?asset=${assetCode}:${issuer}&limit=200`);
+  if (!data) return [];
   return (data._embedded?.records || [])
     .map((acc) => {
       const line = (acc.balances || []).find(

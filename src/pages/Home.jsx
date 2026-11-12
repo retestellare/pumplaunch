@@ -22,6 +22,7 @@ import HeaderAvatar from '@/components/settings/HeaderAvatar';
 import NotificationBell from '@/components/notifications/NotificationBell';
 import { resolveProfile } from '@/lib/profiles';
 import DailyPlunchClaim from '@/components/plunch/DailyPlunchClaim';
+import { useRefreshTick, refreshApp } from '@/lib/appRefresh';
 
 const MODES = [
   { key: 'coins', label: '🐸 Memecoins' },
@@ -54,6 +55,7 @@ const createdTime = (t) => new Date(t.created_date).getTime();
 
 export default function Home() {
   const { wallet } = useWallet();
+  const tick = useRefreshTick();
   const [mode, setMode] = useState('coins');
   const [tab, setTab] = useState('hot');
   const [allTokens, setAllTokens] = useState([]);
@@ -92,7 +94,7 @@ export default function Home() {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, tick]);
 
   const tokens = useMemo(() => {
     const list = [...allTokens];
@@ -116,7 +118,7 @@ export default function Home() {
 
   return (
     <PageLayout bare>
-      <PullToRefresh onRefresh={load} />
+      <PullToRefresh onRefresh={refreshApp} />
       <section className="relative min-h-[300px] overflow-hidden">
         <div className="absolute inset-0">
           <Image src={HERO_IMAGE} alt="" fittingType="fill" className="w-full h-full" />

@@ -53,12 +53,18 @@ export { server, StellarSdk };
 const CACHE_TTL = 60 * 1000;
 const horizonCache = new Map();
 
+// A refresh must see today's book, not the answer an earlier screen got, so the
+// cached reads are dropped before anything reloads.
+export function clearHorizonCache() {
+  horizonCache.clear();
+}
+
 async function horizonJsonSafe(path, ttl = CACHE_TTL) {
   const url = `${HORIZON_URL}${path}`;
   const hit = horizonCache.get(url);
   if (hit && Date.now() - hit.time < ttl) return hit.data;
   try {
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const data = await res.json();
     horizonCache.set(url, { time: Date.now(), data });
@@ -437,7 +443,14 @@ export function buildCancelOfferTransaction({ sourceAccount, side, assetCode, is
 }
 
 export async function fetchOpenOrders(address, assetCode, issuer) {
-  const res = await fetch(`${HORIZON_URL}/accounts/${address}/offers?limit=200`);
+  // Bounded like every other Horizon read: a stalled connection must never leave
+  // a caller waiting with no answer.
+  let res;
+  try {
+    res = await fetchWithTimeout(`${HORIZON_URL}/accounts/${address}/offers?limit=200`);
+  } catch {
+    return [];
+  }
   if (!res.ok) return [];
   const data = await res.json();
   const records = data._embedded?.records || [];

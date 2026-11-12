@@ -15,6 +15,7 @@ import XAccountRow from '@/components/XAccountRow';
 import WalletAssetRow from '@/components/wallet/WalletAssetRow';
 import AssetManagerEntry from '@/components/wallet/AssetManagerEntry';
 import { Pencil } from 'lucide-react';
+import { useRefreshTick } from '@/lib/appRefresh';
 
 // How many assets are priced at once: fast enough to feel live, gentle on Horizon.
 const ASSET_CONCURRENCY = 3;
@@ -45,6 +46,7 @@ function timeAgo(date) {
 
 export default function Portfolio() {
   const { wallet } = useWallet();
+  const tick = useRefreshTick();
   const [balances, setBalances] = useState(null);
   const [enrichedAssets, setEnrichedAssets] = useState([]);
   const [profile, setProfile] = useState(null);
@@ -86,7 +88,7 @@ export default function Portfolio() {
     return () => {
       active = false;
     };
-  }, [wallet?.address]);
+  }, [wallet?.address, tick]);
 
   // What each token cost this wallet, read once from the app's own trade log, so
   // every row can show the gain or loss sitting behind its balance.

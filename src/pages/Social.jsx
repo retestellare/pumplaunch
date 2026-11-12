@@ -7,12 +7,14 @@ import CreatePost from '@/components/CreatePost';
 import { Plus } from 'lucide-react';
 import PullToRefresh from '@/components/PullToRefresh';
 import InboxButton from '@/components/inbox/InboxButton';
+import { useRefreshTick, refreshApp } from '@/lib/appRefresh';
 
 export default function Social() {
   const [posts, setPosts] = useState([]);
   const [profileMap, setProfileMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const tick = useRefreshTick();
 
   const load = async () => {
     const list = await base44.entities.Post.list('-created_date', 50);
@@ -23,11 +25,11 @@ export default function Social() {
   };
   useEffect(() => {
     load();
-  }, []);
+  }, [tick]);
 
   return (
     <PageLayout title="Social Feed" rightAction={<InboxButton />}>
-      <PullToRefresh onRefresh={load} enabled={!showCreate} />
+      <PullToRefresh onRefresh={refreshApp} enabled={!showCreate} />
       {!showCreate ? (
         <div className="p-3">
           <button

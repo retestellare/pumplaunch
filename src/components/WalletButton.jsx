@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@/lib/wallet';
 import { loadAccount, parseBalances } from '@/lib/stellar';
 import { USDC_CODE, USDC_ISSUER } from '@/lib/pools';
+import { useRefreshTick } from '@/lib/appRefresh';
 
 export default function WalletButton() {
   const { wallet, connect, disconnect, connecting } = useWallet();
+  const tick = useRefreshTick();
   const [balances, setBalances] = useState(null);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export default function WalletButton() {
       active = false;
       clearInterval(timer);
     };
-  }, [wallet?.address]);
+  }, [wallet?.address, tick]);
 
   if (!wallet) {
     return (

@@ -4,6 +4,7 @@ import { Check, ExternalLink, Loader2, Lock } from 'lucide-react';
 import { useWallet } from '@/lib/wallet';
 import { claimDropWithTrustline } from '@/lib/plunch';
 import ShareReceiptButton from '@/components/plunch/ShareReceiptButton';
+import { useRefreshTick } from '@/lib/appRefresh';
 
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 const formatAmount = (n) => (Number(n) > 0 ? Math.round(Number(n)).toLocaleString('en-US') : '—');
@@ -33,6 +34,7 @@ async function invoke(payload) {
 
 export default function DailyPlunchClaim() {
   const { wallet, connect, connecting } = useWallet();
+  const tick = useRefreshTick();
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState('idle'); // idle | claiming | sent
@@ -71,7 +73,7 @@ export default function DailyPlunchClaim() {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, tick]);
 
   const nextAt = status?.next_at ? new Date(status.next_at).getTime() : 0;
   const networkAt = status?.network_next_at ? new Date(status.network_next_at).getTime() : 0;

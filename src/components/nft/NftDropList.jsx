@@ -6,10 +6,12 @@ import NftCard from './NftCard';
 import { mapLimit } from '@/lib/concurrency';
 import { fetchCollectionState, isOnChain } from '@/lib/nftLaunch';
 import { PANEL_IMAGE } from '@/lib/brandAssets';
+import { useRefreshTick } from '@/lib/appRefresh';
 
 export default function NftDropList() {
   const [collections, setCollections] = useState(null);
   const [saleStates, setSaleStates] = useState({});
+  const tick = useRefreshTick();
 
   const load = useCallback(async () => {
     const list = await base44.entities.NftCollection.list('-created_date', 100);
@@ -41,7 +43,7 @@ export default function NftDropList() {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, tick]);
 
   const update = (updated) =>
     setCollections((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
