@@ -53,8 +53,7 @@ export default function InviteLinkCard({ wallet, invited = 0 }) {
       </button>
 
       <p className="text-[10px] leading-relaxed text-[#F2F7F4]/35">
-        The reward lands automatically on both wallets as soon as your friend sets up a profile
-        with a name and photo.
+        The reward lands automatically on both wallets as soon as your friend adds a profile name.
       </p>
     </section>
   );

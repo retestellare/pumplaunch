@@ -94,9 +94,9 @@ export default async function (req) {
         { limit: 1 }
       );
       const profile = profilePage?.items?.[0];
-      const completed = Boolean(
-        profile && String(profile.display_name || '').trim() && String(profile.avatar_url || '').trim()
-      );
+      // A named profile is what counts: asking for an avatar too meant members
+      // who joined and set a name were never credited.
+      const completed = Boolean(profile && String(profile.display_name || '').trim());
       if (!completed) return reply({ invited: true, completed: false, credited: 0 });
 
       // One invitation, one credit for each side — however often this runs.
