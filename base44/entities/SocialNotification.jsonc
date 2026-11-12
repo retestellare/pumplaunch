@@ -1,0 +1,39 @@
+{
+  "name": "SocialNotification",
+  "type": "object",
+  "properties": {
+    "wallet_address": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "follow",
+        "message",
+        "team"
+      ],
+      "enumColors": [
+        "green",
+        "blue",
+        "purple"
+      ]
+    },
+    "actor_wallet": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "href": {
+      "type": "string"
+    },
+    "read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "wallet_address",
+    "type"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "DirectMessage",
+  "type": "object",
+  "properties": {
+    "from_wallet": {
+      "type": "string"
+    },
+    "to_wallet": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "read": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_request": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "from_wallet",
+    "to_wallet",
+    "body"
+  ]
+}

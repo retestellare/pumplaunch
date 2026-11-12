@@ -1,0 +1,16 @@
+{
+  "name": "Follow",
+  "type": "object",
+  "properties": {
+    "from_wallet": {
+      "type": "string"
+    },
+    "to_wallet": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "from_wallet",
+    "to_wallet"
+  ]
+}

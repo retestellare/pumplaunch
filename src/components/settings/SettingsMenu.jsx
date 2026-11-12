@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { User, Wallet, Gift } from 'lucide-react';
+import { User, Wallet, Gift, Inbox, Users } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import SettingsRow from '@/components/settings/SettingsRow';
 import NotificationToggle from '@/components/settings/NotificationToggle';
@@ -65,6 +65,29 @@ export default function SettingsMenu({ open, onOpenChange, profile, onProfileSav
                 to="/rewards"
                 onClick={close}
               />
+              <SettingsRow
+                icon={Inbox}
+                label="Inbox"
+                description="Messages, activity and requests"
+                to="/inbox"
+                onClick={close}
+              />
+              <SettingsRow
+                icon={Users}
+                label="Teams"
+                description="Create a team or join one"
+                to="/teams"
+                onClick={close}
+              />
+              {wallet?.address && (
+                <SettingsRow
+                  icon={User}
+                  label="My profile"
+                  description="How others see you"
+                  to={`/profile/${wallet.address}`}
+                  onClick={close}
+                />
+              )}
               <NotificationToggle />
             </div>
           </div>

@@ -6,6 +6,7 @@ import PostCard from '@/components/PostCard';
 import CreatePost from '@/components/CreatePost';
 import { Plus } from 'lucide-react';
 import PullToRefresh from '@/components/PullToRefresh';
+import InboxButton from '@/components/inbox/InboxButton';
 
 export default function Social() {
   const [posts, setPosts] = useState([]);
@@ -25,7 +26,7 @@ export default function Social() {
   }, []);
 
   return (
-    <PageLayout title="Social Feed">
+    <PageLayout title="Social Feed" rightAction={<InboxButton />}>
       <PullToRefresh onRefresh={load} enabled={!showCreate} />
       {!showCreate ? (
         <div className="p-3">

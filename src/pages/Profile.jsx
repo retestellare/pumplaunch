@@ -11,6 +11,8 @@ import TraderBadges from '@/components/TraderBadges';
 import ProfileXLink from '@/components/profile/ProfileXLink';
 import ProfileStats from '@/components/profile/ProfileStats';
 import ProfileActivity from '@/components/profile/ProfileActivity';
+import ProfileSocialActions from '@/components/profile/ProfileSocialActions';
+import FollowCounts from '@/components/profile/FollowCounts';
 
 // Every count is one number the server returns, so the page never loads a
 // collection just to say how big it is.
@@ -108,6 +110,8 @@ export default function Profile() {
                 <p className="text-sm text-white/40 mt-3">No profile set up yet.</p>
               )}
               <ProfileStats counts={counts} />
+              <FollowCounts walletAddress={walletAddress} />
+              <ProfileSocialActions walletAddress={walletAddress} />
             </div>
 
             <ProfileActivity

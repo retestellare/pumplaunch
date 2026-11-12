@@ -19,6 +19,9 @@ import AssetManager from '@/pages/AssetManager';
 import ManageAsset from '@/pages/ManageAsset';
 import Rewards from '@/pages/Rewards';
 import RewardsAdmin from '@/pages/RewardsAdmin';
+import Inbox from '@/pages/Inbox';
+import Thread from '@/pages/Thread';
+import Teams from '@/pages/Teams';
 import RewardTracker from '@/components/RewardTracker';
 import ShareSheetHost from '@/components/share/ShareSheetHost';
 
@@ -56,6 +59,9 @@ function AppRoutes() {
             <Route path="/manage/:kind/:id" element={<ManageAsset />} />
             <Route path="/rewards" element={<Rewards />} />
             <Route path="/rewards-admin" element={<RewardsAdmin />} />
+            <Route path="/inbox" element={<Inbox />} />
+            <Route path="/messages/:walletAddress" element={<Thread />} />
+            <Route path="/teams" element={<Teams />} />
             <Route path="*" element={<PageNotFound />} />
           </Routes>
         </motion.div>
@@ -85,4 +91,4 @@ function App() {
   )
 }
 
-export default App 
+export default App
