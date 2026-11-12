@@ -10,7 +10,7 @@ import {
   readParked,
   releaseLock,
   sendPlunch,
-  waitForParked,
+  waitForPayout,
 } from '../../shared/plunch.ts';
 
 // Each completed invitation is worth 1 XLM of PLUNCH, paid to BOTH wallets: the
@@ -60,9 +60,12 @@ export default async function (req) {
         account = null;
       }
       const line = account ? plunchLine(account) : null;
+      // A payout parked for a wallet before this change is still that wallet's
+      // money: it is counted here so it can be claimed instead of stranded.
+      const parkedBalance = await readParked(server, address);
 
       return reply({
-        plunch,
+        plunch: plunch + (parkedBalance ? parkedBalance.amount : 0),
         price,
         target_xlm: REWARD_XLM,
         invited: Number(invited) || 0,
@@ -180,6 +183,13 @@ export default async function (req) {
         return reply({ error: 'Nothing to request yet — invite a member first.' }, 400);
       }
 
+      // Without the PLUNCH line the wallet adds it in one approval and asks
+      // again, so the payout goes out as a plain payment straight into the
+      // wallet instead of as a pending balance to claim later.
+      if (!trustline) {
+        return reply({ amount: total, needs_trustline: true, trustline_required: true });
+      }
+
       const pool = plunchBalance(await server.loadAccount(funder.publicKey()));
       const amount = Math.min(total, Math.floor(pool));
       if (amount < 1) {
@@ -201,64 +211,42 @@ export default async function (req) {
         return reply({ error: 'The PLUNCH reward pool is empty right now. Try again later.' }, 503);
       }
 
+      const startedAt = Date.now();
       const payment = await sendPlunch({
         server,
         funder,
         destination: address,
         amount: sending,
-        trustline,
+        trustline: true,
         memo: 'PLUNCH referral reward',
       });
 
-      if (!payment.result) {
-        const codes = payment.failure?.response?.data?.extras?.result_codes;
-        const detail = codes?.operations?.join(', ') || codes?.transaction || payment.failure?.message;
-        return reply({ error: `The payout did not go through (${detail}). Nothing was sent.` }, 502);
+      // Horizon sometimes fails to answer a submit that in fact landed. The chain
+      // is the authority: a payment from the app wallet inside this request is
+      // this payout, whatever the submit answer said, and the credits are never
+      // closed on a payment that did not happen.
+      let txHash = payment.result?.hash || '';
+      if (!txHash) {
+        const landed = await waitForPayout(server, funder.publicKey(), address, startedAt);
+        txHash = landed?.transaction_hash || '';
       }
-
-      // Without the line, the tokens sit in a balance only this wallet can claim.
-      // Nothing is closed until that balance is readable, so an unreadable one
-      // leaves the credits waiting for the next request, which hands it back.
-      let claimableBalanceId = '';
-      if (!trustline) {
-        const parkedNow = await waitForParked(server, address);
-        if (!parkedNow) {
-          return reply(
-            { error: 'The payout was reserved but is not readable yet. Request again in a moment.' },
-            502
-          );
-        }
-        claimableBalanceId = parkedNow.id;
+      if (!txHash) {
+        const codes = payment.failure?.response?.data?.extras?.result_codes;
+        const detail = codes?.operations?.join(', ') || codes?.transaction || 'the network did not confirm it';
+        return reply({ error: `The payout did not go through (${detail}). Nothing was sent.` }, 502);
       }
 
       const ids = covered.map((row) => row.id);
       if (ids.length) {
         await rewardsApi.updateMany(
           { id: { $in: ids } },
-          {
-            $set: {
-              status: 'paid',
-              // A parked balance is closed with the transaction that claims it,
-              // which the wallet reports once it has signed.
-              tx_hash: trustline ? payment.result.hash : '',
-              paid_at: new Date().toISOString(),
-            },
-          }
+          { $set: { status: 'paid', tx_hash: txHash, paid_at: new Date().toISOString() } }
         );
-      }
-
-      if (!trustline) {
-        return reply({
-          amount: sending,
-          tx_hash: payment.result.hash,
-          trustline_required: true,
-          claimable_balance_id: claimableBalanceId,
-        });
       }
 
       return reply({
         amount: sending,
-        tx_hash: payment.result.hash,
+        tx_hash: txHash,
         paid_at: new Date().toISOString(),
       });
     } catch (error) {

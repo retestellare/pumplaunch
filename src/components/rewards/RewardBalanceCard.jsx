@@ -52,7 +52,7 @@ export default function RewardBalanceCard({ plunch = 0, price = 0, phase, payout
         >
           {sending ? (
             <>
-              <Loader2 size={14} className="animate-spin" /> Sending…
+              <Loader2 size={14} className="animate-spin" /> Approve in your wallet…
             </>
           ) : plunch >= 1 ? (
             `Request ${fmt(plunch)} PLUNCH`
@@ -60,6 +60,20 @@ export default function RewardBalanceCard({ plunch = 0, price = 0, phase, payout
             'Nothing to request yet'
           )}
         </button>
+      )}
+
+      {!paid && plunch >= 1 && (
+        <ol className="mt-3 space-y-1.5 rounded-xl border border-white/5 bg-black/20 p-3 text-[10px] leading-relaxed text-[#F2F7F4]/45">
+          <li>1. Tap request. Your wallet asks once for your approval.</li>
+          <li>
+            2. If your wallet does not hold PLUNCH yet, that same approval adds the PLUNCH line. It
+            keeps 0.5 XLM in reserve, which comes back if you ever remove the line.
+          </li>
+          <li>
+            3. The tokens are sent straight into your wallet during that request. Nothing is left
+            pending and there is no second step to claim them.
+          </li>
+        </ol>
       )}
 
       {error && <p className="mt-2 text-[10px] leading-snug text-[#FF4D6D]">{error}</p>}

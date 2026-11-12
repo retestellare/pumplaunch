@@ -128,10 +128,12 @@ export function explainError(e) {
       code = 'transient_network';
     }
   }
-  // A wallet module can reject with its own payload rather than an Error, which
-  // would otherwise reach the user as "[object Object]".
-  const text = typeof e === 'string' ? e : typeof e?.message === 'string' ? e.message : '';
-  const message = (code && ERROR_MAP[code]) || text || 'The wallet or the network did not complete this request.';
+  // Wallet modules reject in their own language ("Transazione annullata
+  // dall'utente") and their own shape. The app speaks English only, so that raw
+  // text never reaches the screen: anything that is not a chain result code or a
+  // network failure is a signature the user backed out of.
+  const message =
+    (code && ERROR_MAP[code]) || 'You cancelled the request in your wallet. Nothing was sent.';
   return { message, code };
 }
 

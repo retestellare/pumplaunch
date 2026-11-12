@@ -12,7 +12,7 @@ import {
   requestReferralPayout,
   syncReferralRewards,
 } from '@/lib/referralRewards';
-import { claimDropWithTrustline } from '@/lib/plunch';
+import { claimDropWithTrustline, openPlunchTrustline, waitForPlunchLine } from '@/lib/plunch';
 import { useRefreshTick } from '@/lib/appRefresh';
 
 // The referral program: both wallets earn PLUNCH worth 1 XLM when an invited
@@ -52,12 +52,24 @@ export default function Rewards() {
     setPhase('sending');
     setError('');
     try {
-      const { data, error: failure } = await requestReferralPayout(wallet.address);
+      let { data, error: failure } = await requestReferralPayout(wallet.address);
       if (failure) throw new Error(failure);
 
+      // A wallet without the PLUNCH line opens it in one approval, then the
+      // payout is sent straight into the wallet: nothing is parked and the
+      // member needs no second step.
+      if (data?.needs_trustline) {
+        await openPlunchTrustline(wallet.address);
+        if (!(await waitForPlunchLine(wallet.address))) {
+          throw new Error('The PLUNCH line is not live on the network yet. Press request again in a moment.');
+        }
+        ({ data, error: failure } = await requestReferralPayout(wallet.address));
+        if (failure) throw new Error(failure);
+      }
+
       let hash = data?.tx_hash || '';
-      // A wallet without the PLUNCH line gets the tokens parked for it: one
-      // approval opens the line and claims them into the same wallet.
+      // A balance parked by an earlier request is collected here: one approval
+      // opens the line and moves the tokens in, so it does not stay pending.
       if (data?.claimable_balance_id) {
         const result = await claimDropWithTrustline({
           walletAddress: wallet.address,
